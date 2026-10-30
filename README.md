@@ -14,6 +14,15 @@ Contract names keep the original Sherwood theme (FairCore, FairPass, ...).
 The play token, the pass amount, the buy token and the shot split live in **GameConfig**, a safe-owned config with a
 7-day timelock. The numbers above are the launch values. The site reads the current ones from `FairLens.configNow()`.
 
+## Links
+
+- Site: https://gameofsplits.fun
+- Testnet: https://testnet.gameofsplits.fun
+- Docs: https://docs.gameofsplits.fun
+- Frontend: https://github.com/GameSplits/gos-site
+
+Note: The frontend repo is private. Judges for the WIF hackathon will be invited to view it.
+
 ## Layout
 
 ```
