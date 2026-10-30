@@ -1,0 +1,33 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      # actions pinned by full commit SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { submodules: recursive }
+      - uses: foundry-rs/foundry-toolchain@de808b1eea699e761c404bda44ba8f21aba30b2c # v1.3.1
+        with: { version: stable }
+      - run: forge build --sizes
+        working-directory: contracts
+      - run: forge test -vv --no-match-path "test/fork/*"
+        working-directory: contracts
+  node:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { pkg: [keeper, watcher] }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "22" }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: ${{ matrix.pkg }}
+      - run: npm test
+        working-directory: ${{ matrix.pkg }}

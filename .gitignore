@@ -1,0 +1,34 @@
+# dependencies
+node_modules/
+
+# Foundry build output, caches (cache/ can hold RPC URLs) and broadcast logs
+contracts/out/
+contracts/cache/
+contracts/artifacts/
+contracts/broadcast/
+contracts/deployments/dryrun-*.json
+
+# web
+web/.next/
+web/out/
+
+# secrets: env files (the .env.example templates are committed), keys, keystores
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.key
+*.pem
+*.p12
+*.keystore
+keystore/
+keystores/
+**/keystore*.json
+*.secret
+secrets/
+
+# local tool state
+.DS_Store
+*.log

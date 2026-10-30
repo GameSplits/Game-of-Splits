@@ -1,0 +1,56 @@
+# Goes in the KEEPER'S OWN private repo as .github/workflows/keeper.yml (not the main repo, not the watcher's).
+# Hourly. The key lives only in the "keeper" Environment secret. DRY_RUN stays "1" until the owner's explicit approval.
+# Two jobs (review N7): `test` installs and tests with NO id-token and no secrets; only `run` can mint the OIDC token
+# the watcher accepts, and it doesn't run npm scripts or tests.
+name: keeper
+on:
+  schedule:
+    - cron: "7 * * * *" # hourly at :07 (off the :00 rush); the script adds its own random 0-10 min delay
+  workflow_dispatch:
+permissions:
+  contents: read # nothing else at workflow level
+concurrency:
+  group: keeper
+  cancel-in-progress: false # never two runs at once (one nonce stream)
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # actions pinned by full commit SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "22" }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+  run:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: keeper
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write # M7: a fresh OIDC token goes with every send-log entry; the watcher pins repo, workflow, ref, trigger
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "22" }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node src/keeper.mjs # exits 1 on errors or on an undelivered alert: GitHub's failed-run email is the backup
+        env:
+          RPC_URL: ${{ secrets.RPC_URL }}
+          CHAIN_ID: ${{ vars.CHAIN_ID }}
+          CORE: ${{ vars.CORE }}
+          ARROW: ${{ vars.ARROW }}
+          SEAT: ${{ vars.SEAT }}
+          ALMS: ${{ vars.ALMS }}
+          DRY_RUN: ${{ vars.DRY_RUN }}       # anything but "0" is a dry run
+          KEEPER_ADDRESS: ${{ vars.KEEPER_ADDRESS }}
+          KEEPER_KEY: ${{ secrets.KEEPER_KEY }}
+          WATCHER_URL: ${{ vars.WATCHER_URL }}
+          SENDLOG_SECRET: ${{ secrets.SENDLOG_SECRET }}
+          PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
+          PUSHOVER_GROUP: ${{ secrets.PUSHOVER_GROUP }}
+          MAX_FEE_GWEI: ${{ vars.MAX_FEE_GWEI }}   # optional hard fee ceiling (unset or empty = 1 gwei)

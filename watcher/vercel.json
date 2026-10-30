@@ -1,0 +1,8 @@
+{
+  "crons": [{ "path": "/api/check", "schedule": "*/2 * * * *" }],
+  "functions": {
+    "api/check.mjs": { "maxDuration": 60 },
+    "api/sendlog.mjs": { "maxDuration": 10 },
+    "api/price.mjs": { "maxDuration": 10 }
+  }
+}

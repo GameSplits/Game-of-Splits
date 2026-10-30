@@ -1,0 +1,8 @@
+{
+  "name": "gos-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Keeper + watcher end-to-end test on a local anvil fork of Robinhood Chain mainnet",
+  "scripts": { "e2e": "bash keeper_watcher.sh" },
+  "dependencies": { "viem": "2.57.5" }
+}
