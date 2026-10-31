@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 // Unit + fuzz tests for fix/security-four (A1-11/12/14, A2-13, A3-09/10/19, A5-01, K-A01/A02/B05/C01/C02/D01).
 

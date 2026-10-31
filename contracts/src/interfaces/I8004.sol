@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 /// @notice The parts of the ERC-8004 Identity registry Robin Among Thieves calls.
 interface IIdentityRegistry {

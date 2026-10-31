@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {RatBase} from "../RatBase.t.sol";
 import {RobinAmongThieves} from "../../src/RobinAmongThieves.sol";

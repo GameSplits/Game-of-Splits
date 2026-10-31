@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 /// Minimal Uniswap v4 types/interfaces (subset of v4-core / v4-periphery, same ABI).
 struct PoolKey {

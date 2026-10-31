@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 // Local anvil only. Exercises Verify's real eth_getLogs scan (_count → _chunkCount), not vm.recordLogs.
 //   bash script/e2e/anvil_hidden_booth.sh

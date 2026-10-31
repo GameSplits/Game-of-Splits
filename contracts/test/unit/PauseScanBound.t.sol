@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 // R1: the pause log is append-only. Settle must stay cheap after a day of the fastest pause spam the rate limit allows.
 import {Base} from "../Base.t.sol";

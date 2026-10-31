@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -54,6 +54,7 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
     uint256 internal constant MAX_DRAW_BPS = 2500; // R1
     uint256 internal constant BPS = 10_000;
     uint256 internal constant SLASH_BPS = 1000; // 10% of a bond, when bonds are enabled
+    uint256 internal constant SELF_GAS = 50_000; // gas cap for the identity approval check in settle
     uint256 public constant REP_GAS = 250_000; // gas for one reputation write; a failed write never blocks settle
     uint256 internal constant MAINNET_TIMELOCK = 48 hours;
     uint256 internal constant MAINNET_BOND_DELAY = 7 days;
@@ -1085,8 +1086,14 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
         rakePending += RAKE_OUT;
         _credit(m.a, m.b, payA);
         _credit(m.b, m.a, payB);
-        _feedback(roundId, mid, m.a, ca);
-        _feedback(roundId, mid, m.b, cb);
+        // A non-share result whose 0-score write failed because the outlaw approved this contract on its identity (the
+        // registry refuses self-feedback) is forfeited to the Sharing Pot, so a steal can't be hidden from reputation.
+        if (!_feedback(roundId, mid, m.a, ca) && ca != Choice.Share && payA != 0 && _selfApproved(m.a)) {
+            (toPot, payA) = (toPot + _forfeit(m.a, payA), 0);
+        }
+        if (!_feedback(roundId, mid, m.b, cb) && cb != Choice.Share && payB != 0 && _selfApproved(m.b)) {
+            (toPot, payB) = (toPot + _forfeit(m.b, payB), 0);
+        }
         emit MatchSettled(roundId, mid, m.a, m.b, ca, cb, payA, payB, toPot, RAKE_OUT, m.eligA, m.eligB);
     }
 
@@ -1155,8 +1162,9 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
 
     /// @dev One ERC-8004 feedback per outlaw per match: 100 for share, 0 for steal or no reveal. A failure (the outlaw
     ///      approved this contract, the registry changed or has no code, the write ran out of its REP_GAS) emits
-    ///      ReputationWriteFailed and settle goes on. Too little gas for the write itself reverts FeedbackGas.
-    function _feedback(uint256 roundId, uint256 mid, uint256 agentId, Choice c) internal {
+    ///      ReputationWriteFailed and settle goes on. Too little gas for the write itself reverts FeedbackGas. Returns
+    ///      whether the write landed, so settle can forfeit a non-share payout the registry refused as self-feedback.
+    function _feedback(uint256 roundId, uint256 mid, uint256 agentId, Choice c) internal returns (bool ok) {
         bytes memory data = abi.encodeCall(
             IReputationRegistry.giveFeedback,
             (
@@ -1174,12 +1182,32 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
         // settle is permissionless: refuse to run with too little gas, so a caller can't starve one outlaw's record
         // (a call only forwards 63/64 of what's left). With enough gas, a failure is the registry's, and is tolerated.
         if (gasleft() < REP_GAS * 64 / 63 + 10_000) revert FeedbackGas();
-        bool ok;
         if (rep.code.length != 0) {
             assembly ("memory-safe") {
                 ok := call(REP_GAS, rep, 0, add(data, 32), mload(data), 0, 0)
             }
         }
         if (!ok) emit ReputationWriteFailed(roundId, agentId);
+    }
+
+    /// @dev Moves a just-credited payout from the outlaw's balance into the Sharing Pot.
+    function _forfeit(uint256 id, uint256 pay) internal returns (uint256) {
+        outlaws[id].balance -= uint128(pay);
+        freeBalances -= pay;
+        sharingPot += pay;
+        return pay;
+    }
+
+    /// @dev True only if this contract is approved on (or owns) the identity, the case the registry refuses as
+    ///      self-feedback. Bounded and fail-open: a reverting, gas-hungry or malformed identity registry reads as
+    ///      false, so an outage forfeits nothing and can't block settle.
+    function _selfApproved(uint256 id) internal view returns (bool y) {
+        bytes memory data = abi.encodeCall(IIdentityRegistry.isAuthorizedOrOwner, (address(this), id));
+        address idr = address(identity);
+        if (gasleft() < SELF_GAS * 64 / 63 + 5_000) revert FeedbackGas();
+        assembly ("memory-safe") {
+            let s := staticcall(SELF_GAS, idr, add(data, 32), mload(data), 0, 32)
+            y := and(s, and(gt(returndatasize(), 31), eq(mload(0), 1)))
+        }
     }
 }

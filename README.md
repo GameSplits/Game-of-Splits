@@ -26,7 +26,7 @@ Note: The frontend repo is private. Judges for the WIF hackathon will be invited
 ## Layout
 
 ```
-contracts/      Foundry project (solc 0.8.28, via-IR, OZ 5.4.0, forge-std 1.11.0 as git submodules)
+contracts/      Foundry project (solc 0.8.38, via-IR, OZ 5.4.0, forge-std 1.11.0 as git submodules)
   src/          GameConfig, FairCore, FairPass, LastArrow, SheriffsSeat, AlmsVote, LocksleyVault, FairLens, routes/, testnet/
   test/         unit, invariant, audit PoCs, fork (live Robinhood RPC), sim (Fair 0 on a local fork)
   script/       Deploy.s.sol (Safe checks + pinned Safe address), SafeAccept.s.sol, Mainnet.s.sol, e2e/*.sh

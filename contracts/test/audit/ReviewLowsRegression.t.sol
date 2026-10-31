@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 // Regressions for the low-severity review findings (K16). Each test is the matching review PoC, ported so
 // it now asserts the fixed behaviour, plus fuzz on the value-moving paths the fixes touch.

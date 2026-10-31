@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 // Regressions for the external review sweep of commit af57910. Each test replays that review's PoC against the fixed
 // contracts: a passing test = the attack now fails (or is contained).

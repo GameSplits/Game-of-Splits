@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IFairCore, IFairPass, IArbSys} from "./interfaces/IFair.sol";
 
 /// @title SheriffsSeat (booth 2)
 /// @notice One seat per day (days start 00:00 UTC). Taking it costs 1.5x what the last holder paid, sliding down to
-///         1 USDG over one hour; the first take of a day costs 1 USDG. You can't take the seat from yourself.
-///         The top 3 by seconds held split the day's Purse 75/20/5. The holder posts a message and picks a colour.
+///         1 USDG over one hour of unpaused time; the first take of a day costs 1 USDG. You can't take the seat from
+///         yourself. The top 3 by seconds held split the day's Purse 75/20/5. The holder posts a message and picks a
+///         colour.
 ///         Holds no tokens: USDG goes straight from the payer to FairCore, and winners claim from FairCore.
-///         While sales are paused nobody can take the seat, so the holder's clock stops too: paused time is never
-///         credited.
+///         While sales are paused nobody can take the seat, so the holder's clock and the price slide both stop:
+///         paused time is never credited and never lowers the price.
 contract SheriffsSeat is ReentrancyGuard {
     uint256 public constant FLOOR = 1e6; // 1 USDG
     uint256 public constant SLIDE = 1 hours;
@@ -91,11 +92,11 @@ contract SheriffsSeat is ReentrancyGuard {
         return day0 + (d + 1) * dayLength;
     }
 
-    /// @notice What taking the seat costs right now.
+    /// @notice What taking the seat costs right now. The slide counts only unpaused time since the last take.
     function price() public view returns (uint256) {
         Day storage D = days_[today()];
         if (D.holder == address(0)) return FLOOR;
-        uint256 t = block.timestamp - D.lastTakeAt;
+        uint256 t = _held(D, uint64(block.timestamp)); // live seconds since the last take (since == lastTakeAt)
         if (t >= SLIDE) return FLOOR;
         uint256 s = uint256(D.lastPaid) * 3 / 2;
         return FLOOR + (s - FLOOR) * (SLIDE - t) / SLIDE;
