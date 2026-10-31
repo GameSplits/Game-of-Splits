@@ -70,18 +70,22 @@ contract GameConfig is SafeHandover {
 
     // ------------------------------------------------------------------ views
 
+    /// @notice The play token, the amount a new pass locks, and the buy token.
     function tokens() external view returns (address playToken, uint256 passLock, address buyToken) {
         return (_tokens.playToken, _tokens.passLock, _tokens.buyToken);
     }
 
+    /// @notice The shot split in force.
     function split() external view returns (Split memory) {
         return _split;
     }
 
+    /// @notice The queued token update. Zero addresses and a zero amount when nothing is queued.
     function pendingTokens() external view returns (address playToken, uint256 passLock, address buyToken) {
         return (_pendingTokens.playToken, _pendingTokens.passLock, _pendingTokens.buyToken);
     }
 
+    /// @notice The queued split. Zeros when nothing is queued.
     function pendingSplit() external view returns (Split memory) {
         return _pendingSplit;
     }
@@ -106,6 +110,7 @@ contract GameConfig is SafeHandover {
         emit TokensQueued(epoch + 1, t.playToken, t.passLock, t.buyToken, tokensEta);
     }
 
+    /// @notice Drop the queued token update. Queue again to start a fresh delay.
     function cancelTokens() external onlyOwner {
         if (tokensEta == 0) revert NothingPending();
         delete _pendingTokens;
@@ -140,6 +145,7 @@ contract GameConfig is SafeHandover {
         emit SplitQueued(s, splitEta);
     }
 
+    /// @notice Drop the queued split. Queue again to start a fresh delay.
     function cancelSplit() external onlyOwner {
         if (splitEta == 0) revert NothingPending();
         delete _pendingSplit;
@@ -162,6 +168,7 @@ contract GameConfig is SafeHandover {
         emit SplitExecuted(s);
     }
 
+    /// @notice Disabled. The Safe stays the owner.
     function renounceOwnership() public pure override {
         revert RenounceDisabled();
     }

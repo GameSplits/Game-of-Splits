@@ -36,16 +36,20 @@ contract BuyRouteV4 is IBuyRoute, IUnlockCallback {
         (usdgPool, outPool) = (usdgPool_, outPool_);
     }
 
+    /// @notice The USDG/ETH pool, then the ETH/tokenOut pool. Both keys are fixed at construction.
     function pools() external view returns (PoolKey memory, PoolKey memory) {
         return (usdgPool, outPool);
     }
 
+    /// @notice Only FairCore. Swaps `usdgIn` USDG to `tokenOut` and pays `recipient` (FairCore passes itself).
+    /// @return out Amount of `tokenOut` taken from the pool. FairCore recounts this by its own balance.
     function swapToToken(uint256 usdgIn, uint256 minOut, address recipient) external returns (uint256 out) {
         if (msg.sender != core) revert OnlyCore();
         out = abi.decode(pm.unlock(abi.encode(usdgIn, recipient)), (uint256));
-        if (out < minOut) revert ShortFill(); // FairCore checks the recipient's balance again
+        if (out < minOut) revert ShortFill(); // FairCore measures its own balance and forwards that amount
     }
 
+    /// @notice PoolManager callback for the two-leg swap. Settles the USDG and takes `tokenOut` to the recipient.
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         if (msg.sender != address(pm)) revert NotPoolManager();
         (uint256 usdgIn, address recipient) = abi.decode(data, (uint256, address));
@@ -65,12 +69,14 @@ contract BuyRouteV4 is IBuyRoute, IUnlockCallback {
         return abi.encode(uint256(int256(out)));
     }
 
+    /// @dev High 128 bits of a v4 balance delta (currency0).
     function _a0(int256 d) internal pure returns (int128 a) {
         assembly {
             a := sar(128, d)
         }
     }
 
+    /// @dev Low 128 bits of a v4 balance delta (currency1), sign-extended.
     function _a1(int256 d) internal pure returns (int128 a) {
         assembly {
             a := signextend(15, d)

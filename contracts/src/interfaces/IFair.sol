@@ -32,8 +32,9 @@ interface IFairPass {
     function heldSince(address a) external view returns (uint64);
 }
 
-/// @notice A buyback route for one token. FairCore sends `usdgIn` USDG to the route first, then calls swap, and
-///         checks `tokenOut()` is the current buy token before every swap.
+/// @notice A buyback route for one token. FairCore sends `usdgIn` USDG to the route first, then calls swap with
+///         itself as `recipient`, and checks `tokenOut()` is the current buy token before every swap. FairCore counts
+///         the buy token by its own balance and forwards that amount. Fee-on-transfer buy tokens are unsupported.
 interface IBuyRoute {
     function tokenOut() external view returns (address);
     function swapToToken(uint256 usdgIn, uint256 minOut, address recipient) external returns (uint256 out);

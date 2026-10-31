@@ -35,7 +35,10 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///         setup bypass. The only outbound calls are `IERC20.transfer` (SafeERC20) and an ETH send with empty
 ///         calldata. No arbitrary call, no router, no sweep that skips the split.
 ///
-///         Where the legs should point. This contract does not hardcode them.
+///         Where the legs should point. This contract does not hardcode them. `fairCore` and `rakeBuyer` are
+///         immutables, and `_checkRecipient` rejects both (and this contract). A leg that paid FairCore would add
+///         buy tokens to the balance FairCore counts as a swap fill. A leg that paid RakeBuyer could be forwarded
+///         onward from there.
 ///         - Purses: not FairCore, LastArrow or SheriffsSeat. A plain transfer is not a purse. FairCore credits a
 ///           purse only in `collect`, which is `onlyBooth`, pulls USDG only, and keeps `purseBps` of the amount
 ///           (the rest is Greenwood). USDG above `accounted`, and any other token, is uncounted and `sweepExcess`
@@ -90,6 +93,10 @@ contract FeeSplitter is Ownable2Step, ReentrancyGuard {
 
     /// @notice `$wif`. The burn leg of this token is sent to `DEAD`. Immutable on purpose.
     address public immutable wif;
+    /// @notice FairCore. No leg can pay this address.
+    address public immutable fairCore;
+    /// @notice RakeBuyer. No leg can pay this address.
+    address public immutable rakeBuyer;
 
     address public purses;
     address public vault;
@@ -146,9 +153,20 @@ contract FeeSplitter is Ownable2Step, ReentrancyGuard {
     error RenounceDisabled();
     error InsufficientGas();
 
-    constructor(address wif_, address owner_, Recipients memory recipients_, FeeSplit memory split_) Ownable(owner_) {
-        if (wif_ == address(0)) revert ZeroAddress();
+    /// @param fairCore_ FairCore. Set at deploy, after FairCore exists. A leg cannot pay it.
+    /// @param rakeBuyer_ RakeBuyer. Set at deploy, after RakeBuyer exists. A leg cannot pay it.
+    constructor(
+        address wif_,
+        address owner_,
+        Recipients memory recipients_,
+        FeeSplit memory split_,
+        address fairCore_,
+        address rakeBuyer_
+    ) Ownable(owner_) {
+        if (wif_ == address(0) || fairCore_ == address(0) || rakeBuyer_ == address(0)) revert ZeroAddress();
         wif = wif_;
+        fairCore = fairCore_;
+        rakeBuyer = rakeBuyer_;
         _setRecipients(recipients_);
         _setSplit(split_);
     }
@@ -398,10 +416,13 @@ contract FeeSplitter is Ownable2Step, ReentrancyGuard {
         opsBps = s.opsBps;
     }
 
+    /// @dev Legs and rescue targets. The constructor, `queue`, `queueRescue` and `executeRescue` all use this.
+    ///      FairCore and RakeBuyer are rejected: a permissionless `distribute` or rescue would otherwise pay them
+    ///      the buy token during a keeper swap, and FairCore would count that payment as the fill.
     function _checkRecipient(address account) internal view {
         if (account == address(0)) revert ZeroAddress();
         // Paying this contract would leave that leg here and the next distribute would split it again.
-        if (account == address(this)) revert BadRecipient();
+        if (account == address(this) || account == fairCore || account == rakeBuyer) revert BadRecipient();
     }
 
     function _checkSplit(uint16 a, uint16 b, uint16 c, uint16 d, uint16 e) internal pure {

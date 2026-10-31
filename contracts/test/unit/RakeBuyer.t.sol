@@ -13,7 +13,7 @@ contract RakeBuyerTest is Base {
 
     function setUp() public override {
         super.setUp();
-        rb = new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 48 hours);
+        rb = new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 48 hours, address(core));
         vm.startPrank(owner);
         rb.setupSet(RakeBuyer.Op.SetKeeper, 0, keeper);
         rb.setupSet(RakeBuyer.Op.SetRoute, 0, address(route));
@@ -124,7 +124,7 @@ contract RakeBuyerTest is Base {
     // ---------------------------------------------------------------- ratchet
 
     function test_ratchet_unseeded_and_staleEpoch() public {
-        RakeBuyer fresh = new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 0);
+        RakeBuyer fresh = new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 0, address(core));
         vm.startPrank(owner);
         fresh.setupSet(RakeBuyer.Op.SetKeeper, 0, keeper);
         fresh.setupSet(RakeBuyer.Op.SetRoute, 0, address(route));
@@ -237,7 +237,7 @@ contract RakeBuyerTest is Base {
         rb.revokeKeeper();
         vm.stopPrank();
         assertEq(rb.keeper(), address(0));
-        RakeBuyer fresh = new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 48 hours);
+        RakeBuyer fresh = new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 48 hours, address(core));
         vm.prank(owner);
         vm.expectRevert(RakeBuyer.SetupOpen.selector);
         fresh.queue(RakeBuyer.Op.SetKeeper, 0, ana);
@@ -245,10 +245,23 @@ contract RakeBuyerTest is Base {
 
     function test_constructor_checks() public {
         vm.expectRevert(RakeBuyer.ZeroAddress.selector);
-        new RakeBuyer(usdg, IGameConfig(address(config)), address(0), owner, 0);
+        new RakeBuyer(usdg, IGameConfig(address(config)), address(0), owner, 0, address(core));
+        vm.expectRevert(RakeBuyer.ZeroAddress.selector);
+        new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 0, address(0));
+        vm.expectRevert(RakeBuyer.BadOpValue.selector);
+        new RakeBuyer(usdg, IGameConfig(address(config)), address(core), owner, 0, address(core));
         vm.chainId(4663);
         vm.expectRevert(abi.encodeWithSelector(RakeBuyer.TooEarly.selector, 48 hours));
-        new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 1 hours);
+        new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 1 hours, address(core));
+    }
+
+    function test_queueForwardTo_fairCore_revertsBeforeStore() public {
+        bytes32 id = rb.opId(RakeBuyer.Op.SetForwardTo, 0, address(core));
+        vm.prank(owner);
+        vm.expectRevert(RakeBuyer.BadOpValue.selector);
+        rb.queue(RakeBuyer.Op.SetForwardTo, 0, address(core));
+        assertEq(rb.queuedAt(id), 0);
+        assertEq(rb.forwardTo(), address(0));
     }
 
     function test_sweepExcess_onlyAboveLedgers() public {

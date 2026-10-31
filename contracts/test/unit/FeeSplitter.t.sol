@@ -592,7 +592,7 @@ contract FeeSplitterTest is Test {
         internal
         returns (FeeSplitter)
     {
-        return new FeeSplitter(wif_, owner_, r, s);
+        return new FeeSplitter(wif_, owner_, r, s, address(0xC0FE), address(0xBEEF));
     }
 
     function _recipients(address p, address v, address r, address b, address o)
@@ -799,6 +799,6 @@ contract SplitterFactory {
         external
         returns (FeeSplitter)
     {
-        return new FeeSplitter(wif_, owner_, r, s);
+        return new FeeSplitter(wif_, owner_, r, s, address(0xC0FE), address(0xBEEF));
     }
 }

@@ -17,6 +17,7 @@ interface IAlmsWindows {
 ///         Purse, 40% to the Greenwood: Locksley Vault 45%, the Alms 20%, the Bonfire 17.5%, the Toll 17.5%). Booths
 ///         only keep score and report winners; winners pull from here. No loops over users. No owner function can touch
 ///         Purses, rollovers, claimable balances or the Alms. The keeper buys GameConfig's buy token.
+///         Fee-on-transfer and rebasing buy tokens are unsupported. See `_swap`.
 contract FairCore is SafeHandover, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -544,9 +545,18 @@ contract FairCore is SafeHandover, ReentrancyGuard {
     ///  - at most 250 USDG, and at least 50 minutes since this ledger's last swap, and at most 3,000 USDG per UTC day
     ///  - the anchor seeded by the Safe in the current GameConfig epoch, and minOut non-zero and at least the floor
     ///    (95% of an anchor that only falls with time)
-    ///  - the route must output GameConfig's buy token, and the recipient's balance of it must rise by minOut
+    ///  - the route must output GameConfig's buy token and pay at least minOut of it to this contract, which then
+    ///    sends exactly that amount on to the recipient
     ///  A thief holding the keeper key gets at most one 250 USDG call per ledger per 50 minutes, each at no worse
     ///  than the floor, and the floor can't be walked down faster than 1% per hour. The Safe revokes immediately.
+    ///
+    ///  Fee-on-transfer buy tokens are unsupported. `out` is this contract's balance delta of the buy token, and that
+    ///  exact amount is transferred onward. A fee taken out of the inbound transfer can leave the delta below minOut,
+    ///  and the swap reverts `ShortFill` (the route's own delivery can revert first). When the delta still clears
+    ///  minOut, a second fee on the transfer to the vault or to DEAD leaves that recipient with less than `out`.
+    ///  The return value and `Burned` / `BoughtForVault` report `out`, so they overstate what arrived. A fee charged
+    ///  on top of the outbound amount can make that transfer revert: this contract forwards exactly the delta and
+    ///  keeps nothing aside for the fee.
     function _swap(uint8 ledger, uint256 route, uint256 usdgIn, uint256 minOut, address to)
         internal
         returns (uint256 out, address tokenAddr)
@@ -574,12 +584,19 @@ contract FairCore is SafeHandover, ReentrancyGuard {
         swappedOnDay[ledger][day] = today_;
         accounted -= usdgIn;
 
+        // The route pays this contract, not `to`. Anyone can add to the vault's or DEAD's balance mid-swap
+        // (RakeBuyer.forward, FeeSplitter.distribute, RobinAmongThieves.flushBondBurn), so a delta measured there
+        // could count tokens the route never delivered. Nothing permissionless pays this contract the buy token:
+        // FeeSplitter rejects this contract and RakeBuyer as recipients, and RakeBuyer rejects this contract as
+        // `forwardTo`. The only buy-token outflow (sweepExcess) is owner-only behind this same lock, so this delta
+        // is the fill. A fee-on-transfer buy token is unsupported; see the notice above.
         IERC20 token = IERC20(tokenAddr);
-        uint256 before = token.balanceOf(to);
+        uint256 before = token.balanceOf(address(this));
         usdg.safeTransfer(address(r), usdgIn);
-        r.swapToToken(usdgIn, minOut, to);
-        out = token.balanceOf(to) - before;
+        r.swapToToken(usdgIn, minOut, address(this));
+        out = token.balanceOf(address(this)) - before;
         if (out < minOut) revert ShortFill(out, minOut);
+        token.safeTransfer(to, out);
 
         // Ratchet on the keeper's quote, not the fill. A better fill must not lift the anchor:
         // one windfall, or a sandwich, would leave the floor above the market and freeze later buys.

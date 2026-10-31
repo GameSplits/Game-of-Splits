@@ -206,7 +206,7 @@ abstract contract DeployBase is L2Head, SafeCheck, LaunchSplit {
         address reputation
     ) internal {
         o.rakeBuyer = new RakeBuyer(
-            IERC20(o.usdg), IGameConfig(address(o.config)), address(o.vault), msg.sender, timelock
+            IERC20(o.usdg), IGameConfig(address(o.config)), address(o.vault), msg.sender, timelock, address(o.core)
         );
         o.rat = new RobinAmongThieves(
             RobinAmongThieves.Params({

@@ -16,6 +16,8 @@ import {IBuyRoute, IGameConfig} from "./interfaces/IFair.sol";
 ///         at most 2% per 4-hour window, and only falls with time (1% per hour, at most 30%). It is seeded by the
 ///         Safe, and belongs to the GameConfig epoch it was set in.
 ///         GameConfig is the Safe-owned config with a 7-day timelock.
+///         `forwardTo` cannot be FairCore. A forward during a FairCore swap would add buy tokens to the balance
+///         FairCore counts as the fill. The default destination stays `vault`.
 contract RakeBuyer is SafeHandover, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -46,6 +48,8 @@ contract RakeBuyer is SafeHandover, ReentrancyGuard {
     IERC20 public immutable usdg;
     IGameConfig public immutable config;
     address public immutable vault;
+    /// @notice FairCore. `SetForwardTo` cannot name this address. Zero is not allowed.
+    address public immutable fairCore;
     uint256 public immutable timelockDelay;
 
     address public keeper;
@@ -64,6 +68,7 @@ contract RakeBuyer is SafeHandover, ReentrancyGuard {
     /// @notice A3-19: USDG bought per UTC day.
     mapping(uint256 => uint256) public boughtOnDay;
     /// @notice K-C01: timelocked alternate forward recipient (e.g. if USDG blocklists the vault). 0 = `vault`.
+    ///         Cannot be FairCore (`fairCore`).
     address public forwardTo;
 
     uint256 public anchorRate; // buy-token wei per USDG unit, x1e18
@@ -119,17 +124,28 @@ contract RakeBuyer is SafeHandover, ReentrancyGuard {
     error DailyCap();
 
     /// @param timelockDelay_ at least 48h on mainnet (4663).
-    constructor(IERC20 usdg_, IGameConfig config_, address vault_, address owner_, uint256 timelockDelay_)
-        Ownable(owner_)
-    {
-        if (address(usdg_) == address(0) || address(config_) == address(0) || vault_ == address(0)) {
+    /// @param fairCore_ FairCore. Deployed before this contract. `SetForwardTo` rejects it.
+    constructor(
+        IERC20 usdg_,
+        IGameConfig config_,
+        address vault_,
+        address owner_,
+        uint256 timelockDelay_,
+        address fairCore_
+    ) Ownable(owner_) {
+        if (
+            address(usdg_) == address(0) || address(config_) == address(0) || vault_ == address(0)
+                || fairCore_ == address(0)
+        ) {
             revert ZeroAddress();
         }
+        if (vault_ == fairCore_) revert BadOpValue();
         if (config_.usdg() != address(usdg_)) revert ConfigMismatch();
         if (block.chainid == 4663 && timelockDelay_ < MAINNET_TIMELOCK) revert TooEarly(MAINNET_TIMELOCK);
         usdg = usdg_;
         config = config_;
         vault = vault_;
+        fairCore = fairCore_;
         timelockDelay = timelockDelay_;
     }
 
@@ -400,6 +416,8 @@ contract RakeBuyer is SafeHandover, ReentrancyGuard {
 
     function queue(Op op, uint256 key, address value) external onlyOwner returns (bytes32 id) {
         if (!setupDone) revert SetupOpen();
+        // Reject FairCore before the op is stored. address(0) still means `vault`.
+        if (op == Op.SetForwardTo && value == fairCore) revert BadOpValue();
         id = opId(op, key, value);
         if (op == Op.ResetRatchet) {
             // Reset walk: one pending reset at a time, so ±MAX_RESET_BPS really is per timelockDelay.
@@ -438,7 +456,9 @@ contract RakeBuyer is SafeHandover, ReentrancyGuard {
             if (value != address(0)) revert BadOpValue();
             _resetRatchet(key);
         } else if (op == Op.SetForwardTo) {
-            if (key != 0 || value == address(this)) revert BadOpValue();
+            // address(0) means `vault`. FairCore is rejected: forward() is permissionless, so a forward aimed at
+            // FairCore during a keeper swap would be counted as the fill.
+            if (key != 0 || value == address(this) || value == fairCore) revert BadOpValue();
             forwardTo = value;
             emit ForwardToSet(value);
         } else {

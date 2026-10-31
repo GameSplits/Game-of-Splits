@@ -82,7 +82,7 @@ contract RakeAnchorGriefFork is Test {
         GameConfig config = new GameConfig(
             owner, USDG, 7 days, Tokens(WIF, 5_000e18, WIF), Split(6000, 2000, 1750, 1750, 2500, 2500, 2500)
         );
-        rb = new RakeBuyer(IERC20(USDG), IGameConfig(address(config)), vault, owner, 48 hours);
+        rb = new RakeBuyer(IERC20(USDG), IGameConfig(address(config)), vault, owner, 48 hours, makeAddr("fairCore"));
         BuyRouteV4 routeA = new BuyRouteV4(PM, address(rb), usdgPool, wifPool);
         vm.startPrank(owner);
         rb.setupSet(RakeBuyer.Op.SetKeeper, 0, keeper);

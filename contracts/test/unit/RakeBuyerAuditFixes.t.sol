@@ -15,7 +15,7 @@ contract RakeBuyerAuditFixesTest is Base {
 
     function setUp() public override {
         super.setUp();
-        rb = new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 48 hours);
+        rb = new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 48 hours, address(core));
         vm.startPrank(owner);
         rb.setupSet(RakeBuyer.Op.SetKeeper, 0, keeper);
         rb.setupSet(RakeBuyer.Op.SetRoute, 0, address(route));

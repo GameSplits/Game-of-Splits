@@ -14,7 +14,7 @@ contract RakeBuyerAnchorCapTest is Base {
 
     function setUp() public override {
         super.setUp();
-        rb = new RakeBuyer(usdg, IGameConfig(address(config)), makeAddr("locksleyVault"), owner, 48 hours);
+        rb = new RakeBuyer(usdg, IGameConfig(address(config)), makeAddr("locksleyVault"), owner, 48 hours, address(core));
         vm.startPrank(owner);
         rb.setupSet(RakeBuyer.Op.SetKeeper, 0, keeper);
         rb.setupSet(RakeBuyer.Op.SetRoute, 0, address(route));
@@ -116,7 +116,7 @@ contract RakeBuyerAnchorCapTest is Base {
     /// The Safe's reset restarts the anchor and the raise window together, the way FairCore does.
     /// The constructor leaves both unset; only resetRatchet (and a buy into an expired window) writes them.
     function test_resetRatchet_restartsAnchorAndWindow() public {
-        RakeBuyer fresh = new RakeBuyer(usdg, IGameConfig(address(config)), makeAddr("v2"), owner, 48 hours);
+        RakeBuyer fresh = new RakeBuyer(usdg, IGameConfig(address(config)), makeAddr("v2"), owner, 48 hours, address(core));
         assertEq(fresh.raiseBase(), 0, "constructor leaves raiseBase unset");
         assertEq(fresh.raiseWindowStart(), 0, "constructor leaves the window unset");
 

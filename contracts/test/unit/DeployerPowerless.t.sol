@@ -222,7 +222,7 @@ contract DeployerPowerlessTest is Test {
         config.bindCore(address(core));
         alms = new AlmsVote(IFairCore(address(core)), deployer, 24 hours, 24 hours);
         vault = new LocksleyVault(ICoreVaultUsdg(address(core)), deployer);
-        rakeBuyer = new RakeBuyer(IERC20(address(usdg)), IGameConfig(address(config)), address(vault), deployer, 0);
+        rakeBuyer = new RakeBuyer(IERC20(address(usdg)), IGameConfig(address(config)), address(vault), deployer, 0, address(core));
         rat = new RobinAmongThieves(
             RobinAmongThieves.Params({
                 usdg: IERC20(address(usdg)),

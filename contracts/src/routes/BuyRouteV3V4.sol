@@ -60,10 +60,13 @@ contract BuyRouteV3V4 is IBuyRoute, IUnlockCallback {
         return outPool;
     }
 
+    /// @notice Accepts ETH only from WETH, unwrapped on the v3 leg.
     receive() external payable {
         if (msg.sender != weth) revert NotWeth();
     }
 
+    /// @notice Only FairCore. Swaps `usdgIn` USDG to `tokenOut` and pays `recipient` (FairCore passes itself).
+    /// @return out Amount of `tokenOut` taken from the v4 pool. FairCore recounts this by its own balance.
     function swapToToken(uint256 usdgIn, uint256 minOut, address recipient) external returns (uint256 out) {
         if (msg.sender != core) revert OnlyCore();
         // Leg 1: exact-input USDG -> WETH on v3. In v3, a positive amountSpecified is exact input.
@@ -79,7 +82,7 @@ contract BuyRouteV3V4 is IBuyRoute, IUnlockCallback {
         IWETH(weth).withdraw(wethOut);
         // Leg 2: exact-input ETH -> tokenOut on v4.
         out = abi.decode(pm.unlock(abi.encode(wethOut, recipient)), (uint256));
-        if (out < minOut) revert ShortFill(); // FairCore checks the recipient's balance again
+        if (out < minOut) revert ShortFill(); // FairCore measures its own balance and forwards that amount
     }
 
     /// @dev v3 pays us first, then asks for the USDG it is owed.
@@ -89,6 +92,7 @@ contract BuyRouteV3V4 is IBuyRoute, IUnlockCallback {
         if (owed > 0) IERC20(usdg).safeTransfer(msg.sender, uint256(owed));
     }
 
+    /// @notice PoolManager callback for the ETH to tokenOut leg. Settles the ETH and takes `tokenOut` to the recipient.
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         if (msg.sender != address(pm)) revert NotPoolManager();
         (uint256 ethIn, address recipient) = abi.decode(data, (uint256, address));
@@ -100,12 +104,14 @@ contract BuyRouteV3V4 is IBuyRoute, IUnlockCallback {
         return abi.encode(uint256(int256(out)));
     }
 
+    /// @dev High 128 bits of a v4 balance delta (currency0).
     function _a0(int256 d) internal pure returns (int128 a) {
         assembly {
             a := sar(128, d)
         }
     }
 
+    /// @dev Low 128 bits of a v4 balance delta (currency1), sign-extended.
     function _a1(int256 d) internal pure returns (int128 a) {
         assembly {
             a := signextend(15, d)

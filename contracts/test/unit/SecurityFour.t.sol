@@ -227,7 +227,7 @@ contract SecurityFourRakeBuyerTest is Base {
 
     function setUp() public override {
         super.setUp();
-        rb = new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 48 hours);
+        rb = new RakeBuyer(usdg, IGameConfig(address(config)), vaultTo, owner, 48 hours, address(core));
         vm.startPrank(owner);
         rb.setupSet(RakeBuyer.Op.SetKeeper, 0, keeper);
         rb.setupSet(RakeBuyer.Op.SetRoute, 0, address(route));
@@ -351,7 +351,9 @@ contract SecurityFourFeeSplitterTest is Test {
             address(new MockToken("WIF", "WIF", 18)),
             owner,
             FeeSplitter.Recipients(purses, vault, rebate, burnBuyer, ops),
-            FeeSplitter.FeeSplit(4000, 2500, 1500, 1000, 1000)
+            FeeSplitter.FeeSplit(4000, 2500, 1500, 1000, 1000),
+            makeAddr("fairCore"),
+            makeAddr("rakeBuyer")
         );
     }
 

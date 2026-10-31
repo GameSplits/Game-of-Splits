@@ -29,7 +29,9 @@ contract FeeSplitterForkTest is Test {
             WIF,
             makeAddr("ownerSafe"),
             FeeSplitter.Recipients(purses, vault, rebate, burnBuyer, ops),
-            FeeSplitter.FeeSplit(4000, 2500, 1500, 1000, 1000)
+            FeeSplitter.FeeSplit(4000, 2500, 1500, 1000, 1000),
+            makeAddr("fairCore"),
+            makeAddr("rakeBuyer")
         );
     }
 

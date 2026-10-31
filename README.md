@@ -14,6 +14,12 @@ Contract names keep the original Sherwood theme (FairCore, FairPass, ...).
 The play token, the pass amount, the buy token and the shot split live in **GameConfig**, a safe-owned config with a
 7-day timelock. The numbers above are the launch values. The site reads the current ones from `FairLens.configNow()`.
 
+Buybacks (the Bonfire and the Vault) swap USDG for that buy token. The route pays FairCore, FairCore measures its own
+balance, and it forwards that amount to the Locksley Vault or to the burn address. Fee-on-transfer buy tokens are
+unsupported. A fee taken on the way in can drop the measured amount below `minOut`, and the swap reverts. A fee taken
+on the way out can revert the transfer to the vault or the burn address, or leave that recipient with less than
+what the `Burned` / `BoughtForVault` event and the return value report.
+
 ## Links
 
 - Site: https://gameofsplits.fun

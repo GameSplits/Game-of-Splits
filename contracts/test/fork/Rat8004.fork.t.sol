@@ -171,7 +171,7 @@ contract Rat8004ForkTest is Test {
             owner, USDG, 7 days, Tokens(WIF, 5_000e18, WIF), Split(6000, 2000, 1750, 1750, 2500, 2500, 2500)
         );
         address vault = makeAddr("vault");
-        RakeBuyer rb = new RakeBuyer(IERC20(USDG), IGameConfig(address(config)), vault, owner, 48 hours);
+        RakeBuyer rb = new RakeBuyer(IERC20(USDG), IGameConfig(address(config)), vault, owner, 48 hours, makeAddr("fairCore"));
         PoolKey memory usdgPool = PoolKey(address(0), USDG, 0x800000, 10, USDG_HOOK);
         PoolKey memory wifPool = PoolKey(address(0), WIF, 0, 200, WIF_HOOK);
         BuyRouteV4 route = new BuyRouteV4(PM, address(rb), usdgPool, wifPool);

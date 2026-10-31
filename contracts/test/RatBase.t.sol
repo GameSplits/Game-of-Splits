@@ -47,7 +47,7 @@ abstract contract RatBase is Base {
         MockArbSys(address(0x64)).set(1_000_000);
         idr = new MockIdentity();
         rep = new MockReputation(idr);
-        buyer = new RakeBuyer(usdg, IGameConfig(address(config)), vaultAddr, owner, 48 hours);
+        buyer = new RakeBuyer(usdg, IGameConfig(address(config)), vaultAddr, owner, 48 hours, address(core));
         rat = new RatHarness(_params());
         chain = new bytes32[](CHAIN);
         chain[CHAIN - 1] = keccak256("keeper secret");

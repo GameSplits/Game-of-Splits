@@ -63,7 +63,7 @@ contract ReviewLowsResetWalkFixed is Base {
     }
 
     function test_rakeBuyer_secondQueuedReset_reverts() public {
-        RakeBuyer rb = new RakeBuyer(usdg, IGameConfig(address(config)), makeAddr("v"), owner, 48 hours);
+        RakeBuyer rb = new RakeBuyer(usdg, IGameConfig(address(config)), makeAddr("v"), owner, 48 hours, address(core));
         vm.startPrank(owner);
         rb.setupSet(RakeBuyer.Op.SetKeeper, 0, keeper);
         rb.setupSet(RakeBuyer.Op.SetRoute, 0, address(route));
@@ -412,7 +412,9 @@ contract ReviewLowsRescueFixed is Test {
             address(new MockToken("WIF", "WIF", 18)),
             owner,
             FeeSplitter.Recipients(makeAddr("p"), makeAddr("v"), makeAddr("r"), makeAddr("b"), ops),
-            FeeSplitter.FeeSplit(4000, 2500, 1500, 1000, 1000)
+            FeeSplitter.FeeSplit(4000, 2500, 1500, 1000, 1000),
+            makeAddr("fairCore"),
+            makeAddr("rakeBuyer")
         );
     }
 

@@ -20,6 +20,7 @@ import {IFairCore, IGameConfig, IBuyRoute, Tokens, Split} from "../src/interface
 import {IIdentityRegistry, IReputationRegistry} from "../src/interfaces/I8004.sol";
 import {RobinAmongThieves} from "../src/RobinAmongThieves.sol";
 import {RakeBuyer} from "../src/RakeBuyer.sol";
+import {FeeSplitter} from "../src/FeeSplitter.sol";
 import {PoolKey} from "../src/interfaces/IV4Minimal.sol";
 import {BuyRouteV4} from "../src/routes/BuyRouteV4.sol";
 import {BuyRouteV3V4, IUniswapV3Pool} from "../src/routes/BuyRouteV3V4.sol";
@@ -63,6 +64,7 @@ interface IDeployed {
     function bondDelay() external view returns (uint256);
     function genesis() external view returns (uint256);
     function keeper() external view returns (address);
+    function fairCore() external view returns (address);
     function rakeSink() external view returns (address);
     function houseSink() external view returns (address);
     function pm() external view returns (address);
@@ -106,6 +108,7 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         address deployer;
         FairLens lens;
         address tokenB; // testnet route B's token; zero on mainnet
+        FeeSplitter feeSplitter; // optional; set when deployments/<chain>.json has feeSplitter
     }
 
     function _file() internal view returns (string memory) {
@@ -135,6 +138,9 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         d.deployer = vm.parseJsonAddress(j, ".deployer");
         d.lens = FairLens(vm.parseJsonAddress(j, ".fairLens"));
         d.tokenB = vm.parseJsonAddress(j, ".tokenB");
+        if (vm.keyExistsJson(j, ".feeSplitter")) {
+            d.feeSplitter = FeeSplitter(payable(vm.parseJsonAddress(j, ".feeSplitter")));
+        }
     }
 
     /// After the Safe accepts: the deployer EOA has no owner, pending owner, or other role on any game contract, is
@@ -509,6 +515,34 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         _assertBytecode(d);
         _checkWiring(d);
         _assertDeployerHasNoPower(d, vm.envAddress("DEPLOYER"), safe, safeOwners);
+        address[] memory allow = new address[](2);
+        allow[0] = address(d.vault);
+        allow[1] = 0x000000000000000000000000000000000000dEaD;
+        _assertSplitterAndForward(d, allow);
+    }
+
+    /// FeeSplitter's immutables must be this deploy's FairCore and RakeBuyer. A leg, RakeBuyer's vault, or
+    /// `forwardTo` may be an EOA (no code, which includes the unset forward and DEAD) or on `allow`. A contract
+    /// payee that is not on that list can forward the buy token into FairCore during a swap, so acceptance fails.
+    function _assertSplitterAndForward(D memory d, address[] memory allow) internal view {
+        _assertPayee(d.rakeBuyer.vault(), allow, "rakeBuyer vault");
+        _assertPayee(d.rakeBuyer.forwardTo(), allow, "rakeBuyer forwardTo");
+        if (address(d.feeSplitter) == address(0)) return;
+        require(d.feeSplitter.fairCore() == address(d.core), "feeSplitter fairCore");
+        require(d.feeSplitter.rakeBuyer() == address(d.rakeBuyer), "feeSplitter rakeBuyer");
+        _assertPayee(d.feeSplitter.purses(), allow, "feeSplitter purses");
+        _assertPayee(d.feeSplitter.vault(), allow, "feeSplitter vault");
+        _assertPayee(d.feeSplitter.rebate(), allow, "feeSplitter rebate");
+        _assertPayee(d.feeSplitter.burnBuyer(), allow, "feeSplitter burnBuyer");
+        _assertPayee(d.feeSplitter.ops(), allow, "feeSplitter ops");
+    }
+
+    function _assertPayee(address account, address[] memory allow, string memory label) internal view {
+        if (account.code.length == 0) return;
+        for (uint256 i; i < allow.length; ++i) {
+            if (account == allow[i]) return;
+        }
+        revert(string.concat(label, ": contract payee"));
     }
 
     /// SafeAcceptVerify's full table: the scan (one seed per anchor, no offers) plus two OwnershipTransferred on each
@@ -826,8 +860,11 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         address vault_ = _addr(address(b), IDeployed.vault.selector, n);
         uint256 tl = _uint(address(b), IDeployed.timelockDelay.selector, n);
         address owner_ = _addr(address(b), IDeployed.owner.selector, n);
+        address fc = _addr(address(b), IDeployed.fairCore.selector, n);
         require(usdg_ == d.usdg && cfg == address(d.config) && vault_ == address(d.vault), "rakeBuyer: wiring");
-        try new RakeBuyer(IERC20(usdg_), IGameConfig(cfg), vault_, owner_, tl) returns (RakeBuyer ref) {
+        require(fc == address(d.core), "rakeBuyer: fairCore");
+        require(vault_ != fc, "rakeBuyer: vault is FairCore");
+        try new RakeBuyer(IERC20(usdg_), IGameConfig(cfg), vault_, owner_, tl, fc) returns (RakeBuyer ref) {
             _match(address(b), address(ref), n);
         } catch {
             revert(_bad(n));

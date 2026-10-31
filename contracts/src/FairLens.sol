@@ -113,6 +113,7 @@ contract FairLens {
         config = GameConfig(address(core_.config()));
     }
 
+    /// @notice GameConfig's live values, any queued token or split update, and whether the price anchor is stale.
     function configNow() public view returns (Config memory c) {
         (c.playToken, c.passLock, c.buyToken) = config.tokens();
         c.epoch = config.epoch();
@@ -125,6 +126,7 @@ contract FairLens {
         c.anchorStale = core.anchorStale();
     }
 
+    /// @notice USDG ledgers, solvency, what the vault holds, and the keeper.
     function greenwood() public view returns (Greenwood memory g) {
         (g.fairActive, g.fairId) = core.activeFair();
         g.salesPaused = core.salesPaused();
@@ -149,6 +151,7 @@ contract FairLens {
         g.keeper = core.keeper();
     }
 
+    /// @notice The current Last Arrow round, its purse, and the round a new shot must name.
     function arrowNow() public view returns (ArrowView memory a) {
         a.roundId = arrow.currentRound();
         a.round = arrow.roundState(a.roundId);
@@ -161,6 +164,7 @@ contract FairLens {
         a.live = a.expectedRound == a.roundId;
     }
 
+    /// @notice Today's Sheriff's Seat: holder, price, purse, and the top three.
     function seatNow() public view returns (SeatView memory s) {
         s.dayId = seat.today();
         s.dayEnd = seat.dayEnd(s.dayId);
@@ -171,6 +175,7 @@ contract FairLens {
         s.top = seat.leaderboard(s.dayId);
     }
 
+    /// @notice One player's pass, claimable USDG, and today's booth counts.
     function player(address who) public view returns (PlayerView memory p) {
         p.hasPass = pass.hasPass(who);
         (, p.passToken, p.passAmount,) = pass.passOf(who);
