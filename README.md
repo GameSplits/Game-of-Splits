@@ -64,4 +64,29 @@ still zero). Then sweep leftover gas to the Safe and delete the keystore. See `c
 
 Robinhood Chain testnet (chain 46630). Every contract address is in
 [`contracts/deployments/46630.json`](contracts/deployments/46630.json), and the contracts are verified against
-`contracts/src` in this repo.
+`contracts/src` in this repo. This file is the 7555 testnet set. FairCore is
+`0xc76d5ED46786e67Fb5925928af18C08da7078Cf0`.
+
+## Stash
+
+Stash holds a player's USDG so a session key can shoot Last Arrow and take the Sheriff's Seat without a wallet popup. The player deposits from the main wallet. Withdrawals always return to that same wallet.
+
+The launch cap is 50,000 USDG across every balance. One address can raise the cap and can renounce. Nobody can lower the cap, pause Stash, upgrade it, or move a balance. Tokens sent to Stash by a plain transfer stay there. There is no rescue.
+
+A relayed shot or take costs 0.05 USDG. A relayed withdrawal costs 1 USDG. A direct call from the main wallet pays the player's own gas and no Stash fee. Fees are fixed at deploy. The contract rejects a shot fee above 0.25 USDG or a withdrawal fee above 2 USDG. Fees go to the fee recipient chosen at deploy.
+
+A session lasts at most 7 days. The player sets a spend limit, and the fee counts toward that limit. Whole balance uses the unlimited sentinel. Revoke takes effect in the same transaction. A new key voids older key signatures. The key cannot withdraw, change the limit, or authorize another key.
+
+The site signs a max price at the live price plus 15 percent for Last Arrow and plus 50 percent for the Sheriff's Seat. The degen toggle may sign up to the remaining session limit. Stash never pays more than the signed max price. Seat text is a preset id.
+
+Shown funds are the Stash balance plus FairCore claimable for that wallet. Winnings stay on FairCore until the wallet claims them. The site can batch a claim with a deposit or with a direct withdrawal. That direct withdrawal pays no Stash fee.
+
+Deploy on testnet 46630 only, from `contracts/`. The script reads FairCore, Last Arrow, the Sheriff's Seat and USDG from `deployments/46630.json` and reverts unless they are the 7555 addresses.
+
+```
+forge script script/DeployStash.s.sol --rpc-url robinhood_testnet
+```
+
+Set `STASH_FEE_WALLET` and `STASH_CAP_RAISER` in the environment first. Add `--broadcast` and `--private-key` only for a real testnet deploy. The script reverts on every other chain. Do not write the deployer key into the repo.
+
+The relayer in `relayer/` accepts signed shots over HTTP. It reads `RELAYER_KEY` from the environment, simulates each shot, and sends it with a priority fee on top of the base fee. It retries once when the new price is still within the signed max. It keeps one local nonce queue, refuses a second in-flight nonce for the same player, and alerts below 0.005 ETH. See `relayer/.env.example`.

@@ -1,0 +1,14 @@
+{
+  "name": "gos-relayer",
+  "private": true,
+  "type": "module",
+  "description": "Relays signed Stash shots. The key is read from RELAYER_KEY and is never stored here.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node --experimental-strip-types src/server.ts",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "viem": "2.57.5"
+  }
+}
