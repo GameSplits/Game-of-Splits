@@ -1,6 +1,6 @@
 // Submit one signed Stash call. Simulate first, then send with a priority fee. Retry the send once.
 
-import { LOW_BALANCE_WEI, NonceQueue, OwnerNonceGuard, RateLimit, ResignBook, decideSim, type Sim } from "./policy.ts";
+import { GasCapError, LOW_BALANCE_WEI, NonceQueue, OwnerNonceGuard, RateLimit, ResignBook, decideSim, type Sim } from "./policy.ts";
 
 export interface ShotRequest {
   owner: string;
@@ -102,7 +102,8 @@ async function sendOnceOrTwice(
     try {
       const hash = await state.nonces.run((nonce) => deps.send(data, { nonce, priorityWei: last }));
       return { status: 200, body: { ok: true, hash } };
-    } catch {
+    } catch (err) {
+      if (err instanceof GasCapError) return { status: 503, body: { ok: false, error: "gas price above cap" } };
       // The nonce queue refreshes from the pending count. One more attempt, then a clear error.
     }
   }

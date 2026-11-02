@@ -15,6 +15,7 @@ export interface RelayerConfig {
   chainId: number;
   stash: Address;
   priorityWei: bigint;
+  maxFeeWei: bigint;
   port: number;
   healthcheckUrl: string;
 }
@@ -52,6 +53,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): RelayerConfig {
   }
   const gwei = Number(env.PRIORITY_GWEI || "0.02");
   if (!Number.isFinite(gwei) || gwei <= 0) throw new Error("PRIORITY_GWEI must be a positive number");
+  const capGwei = Number(env.MAX_FEE_GWEI || "0.5");
+  if (!Number.isFinite(capGwei) || capGwei <= 0) throw new Error("MAX_FEE_GWEI must be a positive number");
+  const maxFeeWei = BigInt(Math.round(capGwei * 1e9));
+  if (maxFeeWei <= BigInt(Math.round(gwei * 1e9)) * 2n) throw new Error("MAX_FEE_GWEI must be above twice PRIORITY_GWEI");
   const port = Number(env.PORT || "8787");
   if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new Error("PORT must be a valid port");
   const healthcheckUrl = (env.HEALTHCHECK_URL ?? "").trim();
@@ -64,6 +69,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): RelayerConfig {
     chainId: TESTNET_CHAIN_ID,
     stash,
     priorityWei: BigInt(Math.round(gwei * 1e9)),
+    maxFeeWei,
     port,
     healthcheckUrl,
   };

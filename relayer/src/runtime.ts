@@ -7,6 +7,7 @@ import { redact, type RelayerConfig } from "./config.ts";
 import { decodeRevert, extractRevertData } from "./decode.ts";
 import type { HandleCtx } from "./http.ts";
 import { pingHealthcheck } from "./ping.ts";
+import { GasCapError } from "./policy.ts";
 import { freshState, type RelayDeps } from "./relay.ts";
 import type { Sim } from "./policy.ts";
 
@@ -41,6 +42,7 @@ export function createRuntime(cfg: RelayerConfig): HandleCtx {
     send: async (data, opts) => {
       const block = await pub.getBlock();
       const base = block.baseFeePerGas ?? 0n;
+      if (base + opts.priorityWei > cfg.maxFeeWei) throw new GasCapError();
       const gas = await pub.estimateGas({ account: account.address, to: cfg.stash, data });
       return wallet.sendTransaction({
         account,

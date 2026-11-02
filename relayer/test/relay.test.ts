@@ -359,3 +359,25 @@ test("submitShot rate limit is per owner", async () => {
   assert.equal(second.body.error, "rate limit");
   assert.equal(other.status, 200);
 });
+
+test("a send over the gas cap is refused once with 503, not retried", async () => {
+  const { GasCapError } = await import("../src/policy.ts");
+  let calls = 0;
+  const d = deps({
+    send: async () => {
+      calls += 1;
+      throw new GasCapError();
+    },
+  });
+  const result = await submitShot(d, state(), { owner: "0xabc", maxPrice: 10n, replaces: false, calldata: "0x1234" });
+  assert.equal(result.status, 503);
+  assert.equal(result.body.error, "gas price above cap");
+  assert.equal(calls, 1);
+});
+
+test("MAX_FEE_GWEI defaults to 0.5 and must sit above twice the tip", () => {
+  assert.equal(loadConfig(env()).maxFeeWei, 500_000_000n);
+  assert.equal(loadConfig(env({ MAX_FEE_GWEI: "2" })).maxFeeWei, 2_000_000_000n);
+  assert.throws(() => loadConfig(env({ MAX_FEE_GWEI: "0" })));
+  assert.throws(() => loadConfig(env({ MAX_FEE_GWEI: "0.03", PRIORITY_GWEI: "0.02" })));
+});
