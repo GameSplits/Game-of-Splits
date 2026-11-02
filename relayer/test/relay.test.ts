@@ -1,8 +1,22 @@
 import assert from "node:assert/strict";
 import { keccak256, toBytes } from "viem";
 import test from "node:test";
-import { SHOOT_TYPE, SHOOT_TYPEHASH, TAKE_TYPE, TAKE_TYPEHASH } from "../src/abi.ts";
-import { loadConfig, redact } from "../src/config.ts";
+import {
+  AUTHORIZE_TYPE,
+  AUTHORIZE_TYPEHASH,
+  REVOKE_TYPE,
+  REVOKE_TYPEHASH,
+  SET_LIMIT_TYPE,
+  SET_LIMIT_TYPEHASH,
+  SHOOT_TYPE,
+  SHOOT_TYPEHASH,
+  TAKE_TYPE,
+  TAKE_TYPEHASH,
+  WITHDRAW_TYPE,
+  WITHDRAW_TYPEHASH,
+} from "../src/abi.ts";
+import { RELAYER_ADDRESS, TESTNET_CHAIN_ID, TESTNET_STASH, loadConfig, redact } from "../src/config.ts";
+import { simulationFromError } from "../src/runtime.ts";
 import { decodeRevert } from "../src/decode.ts";
 import { encodeErrorResult } from "viem";
 import { gameErrors } from "../src/decode.ts";
@@ -18,9 +32,7 @@ function env(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
     RELAYER_KEY: KEY,
     RPC_URL: "https://rpc.example.test",
     CHAIN_ID: "46630",
-    STASH: "0x0000000000000000000000000000000000000001",
-    ARROW: "0x0000000000000000000000000000000000000002",
-    SEAT: "0x0000000000000000000000000000000000000003",
+    STASH: TESTNET_STASH,
     ...extra,
   };
 }
@@ -28,6 +40,7 @@ function env(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 function state(): RelayState {
   return {
     rates: new RateLimit(),
+    ips: new RateLimit(),
     resigns: new ResignBook(),
     nonces: new NonceQueue(async () => 7n),
     owners: new OwnerNonceGuard(),
@@ -57,13 +70,24 @@ function deps(over: Partial<RelayDeps> = {}): RelayDeps & { sent: { nonce: bigin
 test("typehashes match the Stash strings", () => {
   assert.equal(keccak256(toBytes(SHOOT_TYPE)), SHOOT_TYPEHASH);
   assert.equal(keccak256(toBytes(TAKE_TYPE)), TAKE_TYPEHASH);
+  assert.equal(keccak256(toBytes(WITHDRAW_TYPE)), WITHDRAW_TYPEHASH);
+  assert.equal(keccak256(toBytes(AUTHORIZE_TYPE)), AUTHORIZE_TYPEHASH);
+  assert.equal(keccak256(toBytes(SET_LIMIT_TYPE)), SET_LIMIT_TYPEHASH);
+  assert.equal(keccak256(toBytes(REVOKE_TYPE)), REVOKE_TYPEHASH);
 });
 
 test("config reads the key from the environment and does not echo it", () => {
   const cfg = loadConfig(env());
   assert.equal(cfg.key, KEY);
-  assert.equal(cfg.chainId, 46630);
+  assert.equal(cfg.chainId, TESTNET_CHAIN_ID);
+  assert.equal(cfg.stash, TESTNET_STASH);
+  assert.equal(cfg.healthcheckUrl, "");
   assert.equal(cfg.priorityWei, 20_000_000n);
+  assert.equal(RELAYER_ADDRESS, "0x58941E09432D2EF6316FA3b99476e69e68933c94");
+  assert.equal(loadConfig(env({ HEALTHCHECK_URL: "https://hc.example/fail" })).healthcheckUrl, "https://hc.example/fail");
+  assert.throws(() => loadConfig(env({ CHAIN_ID: "1" })), /46630/);
+  assert.throws(() => loadConfig(env({ STASH: "0x0000000000000000000000000000000000000001" })), /46630 deployment/);
+  assert.throws(() => loadConfig(env({ HEALTHCHECK_URL: "notaurl" })), /HEALTHCHECK_URL/);
   assert.throws(() => loadConfig(env({ RELAYER_KEY: SECRET.slice(0, 20) })), (err: Error) => {
     assert.equal(err.message.includes(SECRET.slice(0, 20)), false);
     assert.equal(err.message.includes("RELAYER_KEY"), true);
@@ -72,10 +96,12 @@ test("config reads the key from the environment and does not echo it", () => {
   assert.throws(() => loadConfig({ ...env(), RELAYER_KEY: "" }), /RELAYER_KEY/);
 });
 
-test("redact strips the key and the rpc url", () => {
-  const text = redact(`failed ${KEY} at ${"https://rpc.example.test"}`, [KEY, "https://rpc.example.test"]);
+test("redact strips the key, the rpc url, and a healthcheck url", () => {
+  const hook = "https://hc.example/secret-token";
+  const text = redact(`failed ${KEY} at ${"https://rpc.example.test"} ping ${hook}`, [KEY, "https://rpc.example.test", hook]);
   assert.equal(text.includes(KEY), false);
   assert.equal(text.includes("rpc.example"), false);
+  assert.equal(text.includes("secret-token"), false);
 });
 
 test("decideSim retries once inside the signed max", () => {
@@ -235,4 +261,101 @@ test("decode PriceAboveMax and WrongRound", () => {
   if (!decodedRound.ok && decodedRound.kind === "round") assert.equal(decodedRound.actual, 2n);
   else assert.fail("expected a round error");
   assert.equal(decodeRevert("0x1234").kind, "other");
+  const bad = encodeErrorResult({ abi: gameErrors, errorName: "BadSignature" });
+  const badSim = decodeRevert(bad);
+  assert.equal(badSim.ok, false);
+  if (!badSim.ok && badSim.kind === "other") assert.equal(badSim.reason, "bad signature");
+  else assert.fail("expected a bad signature");
+  const nested = simulationFromError({ cause: { data: bad } });
+  if (!nested.ok && nested.kind === "other") assert.equal(nested.reason, "bad signature");
+  else assert.fail("expected a nested bad signature");
+});
+
+test("a failed simulation is not sent", async () => {
+  const d = deps({
+    simulate: async () => ({ ok: false, kind: "other", reason: "bad signature" }),
+  });
+  const result = await submitShot(d, state(), { owner: "0xabc", maxPrice: 10n, replaces: false, calldata: "0x1234" });
+  assert.equal(result.status, 400);
+  assert.equal(result.body.error, "bad signature");
+  assert.equal(d.sent.length, 0);
+});
+
+test("a failed send is tried once more", async () => {
+  const sent: { nonce: bigint; priorityWei: bigint }[] = [];
+  let calls = 0;
+  const d = deps({
+    send: async (_data, opts) => {
+      calls += 1;
+      if (calls === 1) throw new Error("rpc down");
+      sent.push(opts);
+      return "0xabc";
+    },
+  });
+  const result = await submitShot(d, state(), { owner: "0xabc", maxPrice: 1n, replaces: false, calldata: "0x1234" });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.hash, "0xabc");
+  assert.equal(calls, 2);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].priorityWei, 40_000_000n);
+  assert.equal(sent[0].nonce, 7n);
+});
+
+test("two failed sends return a clear error and stop", async () => {
+  let calls = 0;
+  const d = deps({
+    send: async () => {
+      calls += 1;
+      throw new Error("still down");
+    },
+  });
+  const result = await submitShot(d, state(), { owner: "0xabc", maxPrice: 1n, replaces: false, calldata: "0x1234" });
+  assert.equal(result.status, 502);
+  assert.equal(result.body.error, "relay failed");
+  assert.equal(result.body.ok, false);
+  assert.equal(calls, 2);
+  assert.equal(d.sent.length, 0);
+});
+
+test("a simulation RPC failure is tried once", async () => {
+  let calls = 0;
+  const d = deps({
+    simulate: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("rpc");
+      return { ok: true };
+    },
+  });
+  const result = await submitShot(d, state(), { owner: "0xabc", maxPrice: 1n, replaces: false, calldata: "0x1234" });
+  assert.equal(result.status, 200);
+  assert.equal(calls, 2);
+  assert.equal(d.sent.length, 1);
+});
+
+test("two simulation RPC failures are not sent", async () => {
+  let calls = 0;
+  const d = deps({
+    simulate: async () => {
+      calls += 1;
+      throw new Error("rpc");
+    },
+  });
+  const result = await submitShot(d, state(), { owner: "0xabc", maxPrice: 1n, replaces: false, calldata: "0x1234" });
+  assert.equal(result.status, 502);
+  assert.equal(result.body.error, "simulation failed");
+  assert.equal(calls, 2);
+  assert.equal(d.sent.length, 0);
+});
+
+test("submitShot rate limit is per owner", async () => {
+  const st = state();
+  st.rates = new RateLimit(1, 1_000);
+  const d = deps();
+  const first = await submitShot(d, st, { owner: "0xabc", maxPrice: 1n, replaces: false, calldata: "0x01" });
+  const second = await submitShot(d, st, { owner: "0xABC", maxPrice: 1n, replaces: false, calldata: "0x02" });
+  const other = await submitShot(d, st, { owner: "0xdef", maxPrice: 1n, replaces: false, calldata: "0x03" });
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 429);
+  assert.equal(second.body.error, "rate limit");
+  assert.equal(other.status, 200);
 });

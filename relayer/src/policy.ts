@@ -6,7 +6,7 @@ export type Sim =
   | { ok: true }
   | { ok: false; kind: "price"; price: bigint; maxPrice: bigint }
   | { ok: false; kind: "round"; expected: bigint; actual: bigint }
-  | { ok: false; kind: "other" };
+  | { ok: false; kind: "other"; reason?: string };
 
 export type Decision = "send" | "retry" | "resign" | "reject";
 
@@ -30,6 +30,7 @@ export class RateLimit {
   }
 
   allow(owner: string, now: number): boolean {
+    if (this.hits.size > 10_000) this.sweep(now);
     const fresh = (this.hits.get(owner) ?? []).filter((t) => now - t < this.windowMs);
     if (fresh.length >= this.limit) {
       this.hits.set(owner, fresh);
@@ -38,6 +39,12 @@ export class RateLimit {
     fresh.push(now);
     this.hits.set(owner, fresh);
     return true;
+  }
+
+  private sweep(now: number): void {
+    for (const [key, times] of this.hits) {
+      if (!times.some((t) => now - t < this.windowMs)) this.hits.delete(key);
+    }
   }
 }
 

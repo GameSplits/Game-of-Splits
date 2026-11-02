@@ -2,13 +2,19 @@
   "name": "gos-relayer",
   "private": true,
   "type": "module",
-  "description": "Relays signed Stash shots. The key is read from RELAYER_KEY and is never stored here.",
+  "description": "Relays signed Stash actions. The key is read from RELAYER_KEY and is never stored here.",
   "engines": { "node": ">=22" },
   "scripts": {
+    "build": "tsc -p tsconfig.json",
     "start": "node --experimental-strip-types src/server.ts",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test:fork": "node --experimental-strip-types --test --test-timeout=300000 test/fork/e2e.test.ts"
   },
   "dependencies": {
     "viem": "2.57.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1",
+    "typescript": "5.9.3"
   }
 }
