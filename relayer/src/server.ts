@@ -2,8 +2,8 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
-import { loadConfig, redact, type RelayerConfig } from "./config.ts";
-import { CORS, handle } from "./http.ts";
+import { loadConfig, loadOrigins, redact, type RelayerConfig } from "./config.ts";
+import { corsHeaders, handle } from "./http.ts";
 import { createRuntime } from "./runtime.ts";
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -24,20 +24,23 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-function write(res: ServerResponse, status: number, body: Record<string, unknown> | null): void {
+function write(res: ServerResponse, cors: Record<string, string>, status: number, body: Record<string, unknown> | null): void {
   if (status === 204 || body === null) {
-    res.writeHead(status, CORS);
+    res.writeHead(status, cors);
     res.end();
     return;
   }
-  res.writeHead(status, { ...CORS, "content-type": "application/json" });
+  res.writeHead(status, { ...cors, "content-type": "application/json" });
   res.end(JSON.stringify(body));
 }
 
 export function start(cfg: RelayerConfig): Promise<Server> {
   const rt = createRuntime(cfg);
+  const origins = loadOrigins(process.env);
   const secrets = [cfg.key, cfg.rpcUrl, cfg.healthcheckUrl];
   const server = createServer(async (req, res) => {
+    const origin = typeof req.headers.origin === "string" ? req.headers.origin : null;
+    const cors = corsHeaders(origin, origins);
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       const body = req.method === "POST" ? await readBody(req) : "";
@@ -48,12 +51,12 @@ export function start(cfg: RelayerConfig): Promise<Server> {
         headers: req.headers as Record<string, string | string[] | undefined>,
         body,
       });
-      write(res, out.status, out.body);
+      write(res, cors, out.status, out.body);
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
       console.error(redact(message, secrets));
       const tooLarge = message === "too large";
-      write(res, tooLarge ? 413 : 400, { ok: false, error: tooLarge ? "too large" : "bad request" });
+      write(res, cors, tooLarge ? 413 : 400, { ok: false, error: tooLarge ? "too large" : "bad request" });
     }
   });
   return new Promise((resolve, reject) => {

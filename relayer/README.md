@@ -34,7 +34,7 @@ JSON bodies. Amounts are decimal strings. `presetId` and `color` are numbers. Re
 | POST | `/set-limit` | SetLimit order |
 | POST | `/revoke-key` | RevokeKey order |
 
-The same paths are served under `/api/...`. CORS allows `GET`, `POST`, and `OPTIONS` from any origin.
+The same paths are served under `/api/...`. CORS allows `GET`, `POST`, and `OPTIONS` only from the origins in `ALLOW_ORIGIN` plus preview URLs matching `ALLOW_ORIGIN_PATTERN`. Any other origin gets no allow header. Signatures still protect every action; CORS only stops other sites calling the relayer from a browser.
 
 `GET /health`
 
@@ -178,6 +178,8 @@ Primary types and fields, in this order:
 | `RELAYER_KEY` | yes | hex key for `0x58941E09432D2EF6316FA3b99476e69e68933c94`. Dashboard or shell only |
 | `HEALTHCHECK_URL` | no | POST target used when the balance is under 0.005 ETH |
 | `PRIORITY_GWEI` | no | priority fee in gwei. Default `0.02` |
+| `ALLOW_ORIGIN` | no | comma-separated exact origins. Default `https://testnet.gameofsplits.fun,https://gos-testnet.vercel.app`. `*` is refused |
+| `ALLOW_ORIGIN_PATTERN` | no | one anchored regex for preview origins. Default matches gos-testnet and gos-staging previews on the game-of-splits team. `off` disables it |
 | `PORT` | local only | default `8787`. Vercel ignores it |
 
 The process refuses to start on any other chain id or Stash address. A filled `.env` is gitignored. Copy `.env.example`.

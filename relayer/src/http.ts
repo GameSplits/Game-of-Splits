@@ -2,7 +2,7 @@
 
 import { getAddress, type Address } from "viem";
 import { assertSignature, HttpError, parseAction, ZERO_ADDRESS } from "./actions.ts";
-import type { RelayerConfig } from "./config.ts";
+import { isAllowedOrigin, type OriginPolicy, type RelayerConfig } from "./config.ts";
 import type { SignedAction } from "./eip712.ts";
 import { LOW_BALANCE_WEI } from "./policy.ts";
 import { submitShot, type RelayDeps, type RelayState } from "./relay.ts";
@@ -31,13 +31,21 @@ export interface HandleOutput {
 const ACTIONS = ["shoot", "take", "withdraw", "authorize-key", "set-limit", "revoke-key"] as const;
 type ActionName = (typeof ACTIONS)[number];
 
-export const CORS: Record<string, string> = {
-  "access-control-allow-origin": "*",
+const BASE_HEADERS: Record<string, string> = {
   "access-control-allow-methods": "GET, POST, OPTIONS",
   "access-control-allow-headers": "content-type",
   "access-control-max-age": "86400",
   "cache-control": "no-store",
+  vary: "Origin",
 };
+
+/** CORS headers for one request. Only an allowed Origin is echoed back; any other origin gets no allow header. */
+export function corsHeaders(origin: string | null | undefined, policy: OriginPolicy): Record<string, string> {
+  if (origin && isAllowedOrigin(origin, policy)) {
+    return { ...BASE_HEADERS, "access-control-allow-origin": origin };
+  }
+  return { ...BASE_HEADERS };
+}
 
 function isAction(name: string): name is ActionName {
   return (ACTIONS as readonly string[]).includes(name);
@@ -115,10 +123,10 @@ async function health(ctx: HandleCtx): Promise<HandleOutput> {
   }
 }
 
-export function toResponse(out: HandleOutput): Response {
-  if (out.status === 204 || out.body === null) return new Response(null, { status: out.status, headers: CORS });
+export function toResponse(out: HandleOutput, cors: Record<string, string>): Response {
+  if (out.status === 204 || out.body === null) return new Response(null, { status: out.status, headers: cors });
   return new Response(JSON.stringify(out.body), {
     status: out.status,
-    headers: { ...CORS, "content-type": "application/json" },
+    headers: { ...cors, "content-type": "application/json" },
   });
 }

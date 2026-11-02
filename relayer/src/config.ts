@@ -68,3 +68,38 @@ export function loadConfig(env: NodeJS.ProcessEnv): RelayerConfig {
     healthcheckUrl,
   };
 }
+
+/** Browser origins the relayer answers with CORS. Signatures are what protect the funds; this only stops other sites using it from a browser. */
+export interface OriginPolicy {
+  exact: readonly string[];
+  pattern: RegExp | null;
+}
+
+export const DEFAULT_ALLOW_ORIGIN = "https://testnet.gameofsplits.fun,https://gos-testnet.vercel.app";
+/** Vercel preview URLs for the gos-testnet and gos-staging projects on the game-of-splits team. */
+export const DEFAULT_ALLOW_ORIGIN_PATTERN = "^https://gos-(testnet|staging)-[a-z0-9-]+-game-of-splits\\.vercel\\.app$";
+
+/** `ALLOW_ORIGIN` is a comma-separated list of exact origins. `ALLOW_ORIGIN_PATTERN` is one regex for preview URLs; set it to "off" to allow exact origins only. */
+export function loadOrigins(env: NodeJS.ProcessEnv): OriginPolicy {
+  const listRaw = (env.ALLOW_ORIGIN ?? "").trim() || DEFAULT_ALLOW_ORIGIN;
+  const exact = listRaw
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter((s) => s.length > 0);
+  for (const origin of exact) {
+    if (origin === "*" || !/^https?:\/\/[^/\s]+$/.test(origin)) throw new Error("ALLOW_ORIGIN must list exact http(s) origins");
+  }
+  const patRaw = (env.ALLOW_ORIGIN_PATTERN ?? "").trim() || DEFAULT_ALLOW_ORIGIN_PATTERN;
+  let pattern: RegExp | null = null;
+  if (patRaw !== "off") {
+    if (!patRaw.startsWith("^") || !patRaw.endsWith("$")) throw new Error("ALLOW_ORIGIN_PATTERN must be anchored with ^ and $");
+    pattern = new RegExp(patRaw);
+  }
+  return { exact, pattern };
+}
+
+export function isAllowedOrigin(origin: string, policy: OriginPolicy): boolean {
+  if (origin.length > 200) return false;
+  if (policy.exact.includes(origin)) return true;
+  return policy.pattern !== null && policy.pattern.test(origin);
+}
