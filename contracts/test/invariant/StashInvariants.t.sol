@@ -102,10 +102,12 @@ contract StashHandler is Test {
         uint256 wallet = usdg.balanceOf(a);
         uint256 fees = usdg.balanceOf(feeWallet);
         vm.prank(a);
+        uint256 fee = stash.withdrawFee();
         try stash.withdraw(amt) {
-            paidOut += amt;
-            if (usdg.balanceOf(a) != wallet + amt) revertMoved = true;
-            if (usdg.balanceOf(feeWallet) != fees) directCharged = true;
+            paidOut += amt - fee;
+            feesPaid += fee;
+            if (usdg.balanceOf(a) != wallet + amt - fee) revertMoved = true;
+            if (usdg.balanceOf(feeWallet) != fees + fee) revertMoved = true;
         } catch {
             if (stash.balance(a) != bal) revertMoved = true;
         }

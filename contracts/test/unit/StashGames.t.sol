@@ -188,12 +188,12 @@ contract StashGamesTest is Base {
         stash.shoot(paused, pausedSig);
         uint256 pausedBal = stash.balance(p1);
         vm.prank(p1);
-        stash.withdraw(1e6);
-        assertEq(stash.balance(p1), pausedBal - 1e6);
-        assertEq(stash.balance(p1), 1_000e6 - 1e6 - stash.shotFee() - 1e6);
+        stash.withdraw(2e6);
+        assertEq(stash.balance(p1), pausedBal - 2e6);
+        assertEq(stash.balance(p1), 1_000e6 - 1e6 - stash.shotFee() - 2e6);
         assertEq(stash.balance(p2), 1_000e6 - 1_005_000 - stash.shotFee());
         assertEq(stash.balance(bare), 50e6);
-        assertEq(tokenFee(), stash.shotFee() * 2);
+        assertEq(tokenFee(), stash.shotFee() * 2 + stash.withdrawFee());
         assertEq(usdg.allowance(address(stash), address(core)), 0);
     }
 
@@ -207,7 +207,7 @@ contract StashGamesTest is Base {
         vm.prank(p1);
         stash.withdraw(bal);
         assertEq(stash.balance(p1), 0);
-        assertEq(tokenFee(), 0);
+        assertEq(tokenFee(), stash.withdrawFee());
     }
 
     function test_claimThenWithdraw_andClaimThenDeposit() public {
@@ -231,8 +231,8 @@ contract StashGamesTest is Base {
         core.claim();
         vm.prank(p2);
         stash.withdraw(stash2);
-        assertEq(usdg.balanceOf(p2), wallet2 + claim2 + stash2);
-        assertEq(tokenFee(), fees, "direct withdraw and the claim pay no stash fee");
+        assertEq(usdg.balanceOf(p2), wallet2 + claim2 + stash2 - stash.withdrawFee());
+        assertEq(tokenFee(), fees + stash.withdrawFee(), "the claim is free, the withdraw pays the fee");
         assertEq(stash.balance(p2), 0);
 
         uint256 claim1 = core.claimable(p1);
@@ -243,14 +243,14 @@ contract StashGamesTest is Base {
         vm.prank(p1);
         stash.deposit(claim1);
         assertEq(stash.balance(p1), stash1 + claim1);
-        assertEq(tokenFee(), fees);
+        assertEq(tokenFee(), fees + stash.withdrawFee(), "only p2's withdraw paid a fee");
     }
 
     function test_keyCannotWithdraw_replayFails_revokeIsInstant() public {
         uint256 bal = stash.balance(p1);
         vm.prank(p1Key);
         vm.expectRevert(Stash.InsufficientBalance.selector);
-        stash.withdraw(1);
+        stash.withdraw(2e6);
         Stash.Withdrawal memory w = Stash.Withdrawal(p1, 2e6, stash.nonces(p1), block.timestamp + 1 hours);
         bytes memory wsig = _sig(p1KeyPk, stash.hashWithdraw(w));
         vm.expectRevert(Stash.BadSignature.selector);

@@ -26,8 +26,8 @@ interface ISheriffsSeat {
 /// @notice A player's USDG balance for one-click shots. The main wallet deposits and withdraws. A session key
 ///         may only shoot Last Arrow or take the Sheriff's Seat, up to a spend limit, until it expires or is revoked.
 ///         The signed max price is a ceiling. The contract pays the quoted game price, never more, and leaves the
-///         unused room in the owner's balance. Relayed shots and relayed withdrawals pay a fixed fee. A direct call
-///         from the main wallet pays no Stash fee.
+///         unused room in the owner's balance. Relayed shots pay a fixed shot fee. Every withdrawal, direct or
+///         relayed, pays the fixed withdrawal fee. A direct shot from the main wallet pays no shot fee.
 /// @dev Built on OpenZeppelin SafeERC20, ReentrancyGuard, EIP712, SignatureChecker (ECDSA and ERC-1271) and Nonces.
 ///      No owner, no pause, no upgrade. `capRaiser` can only raise the launch deposit cap, or renounce.
 contract Stash is ReentrancyGuard, EIP712, Nonces {
@@ -263,9 +263,9 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         emit Deposited(msg.sender, amount);
     }
 
-    /// @notice Send `amount` to the caller. No fee. The main wallet pays its own gas.
+    /// @notice Send `amount` minus the withdrawal fee to the caller. The main wallet pays its own gas.
     function withdraw(uint256 amount) external nonReentrant {
-        _withdraw(msg.sender, amount, 0);
+        _withdraw(msg.sender, amount, withdrawFee);
     }
 
     function authorizeKey(address key, uint256 limit, uint256 expiry) external nonReentrant {
