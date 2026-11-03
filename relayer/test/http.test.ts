@@ -411,3 +411,8 @@ test("the Upstash store sends SET with a TTL and reads with MGET", async () => {
   assert.deepEqual(calls[0].body, [["SET", `seatline:${HASH}`, "Dawn is mine", "EX", String(60 * 60 * 24 * 120)]]);
   assert.deepEqual(calls[1].body, [["MGET", `seatline:${HASH}`, `seatline:${other}`]]);
 });
+
+test("client ip prefers the Vercel edge headers over x-forwarded-for", () => {
+  assert.equal(clientIp({ "x-forwarded-for": "1.2.3.4, 9.9.9.9", "x-vercel-forwarded-for": "9.9.9.9" }), "9.9.9.9");
+  assert.equal(clientIp({ "x-forwarded-for": "1.2.3.4", "x-real-ip": "8.8.8.8" }), "8.8.8.8");
+});

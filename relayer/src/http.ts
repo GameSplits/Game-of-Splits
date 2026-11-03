@@ -4,7 +4,7 @@ import { getAddress, type Address } from "viem";
 import { assertSignature, HttpError, parseAction, ZERO_ADDRESS } from "./actions.ts";
 import { isAllowedOrigin, type OriginPolicy, type RelayerConfig } from "./config.ts";
 import type { SignedAction } from "./eip712.ts";
-import { LOW_BALANCE_WEI } from "./policy.ts";
+import { LOW_BALANCE_WEI, RateLimit } from "./policy.ts";
 import { cleanLine, isTxHash, type LineStore } from "./lines.ts";
 import { submitShot, type RelayDeps, type RelayState } from "./relay.ts";
 
@@ -33,6 +33,9 @@ export interface HandleOutput {
   body: Record<string, unknown> | null;
 }
 
+/** Reads of saved lines get their own, larger budget, so page polls never use up a player's budget for takes. */
+const READS = new RateLimit(240, 60_000);
+
 const ACTIONS = ["shoot", "take", "withdraw", "authorize-key", "set-limit", "revoke-key"] as const;
 type ActionName = (typeof ACTIONS)[number];
 
@@ -57,6 +60,10 @@ function isAction(name: string): name is ActionName {
 }
 
 export function clientIp(headers: HandleInput["headers"]): string {
+  // Vercel's edge sets x-vercel-forwarded-for and x-real-ip; a client can only prepend to x-forwarded-for.
+  const edge = headers["x-vercel-forwarded-for"] ?? headers["x-real-ip"];
+  const e = Array.isArray(edge) ? edge[0] : edge;
+  if (typeof e === "string" && e.trim()) return (e.split(",")[0]?.trim() ?? "").slice(0, 64) || "unknown";
   const fwd = headers["x-forwarded-for"];
   const raw = Array.isArray(fwd) ? fwd[0] : fwd;
   if (typeof raw === "string" && raw.trim()) {
@@ -82,7 +89,7 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
   }
   if (name === "lines") {
     if (input.method !== "GET") return { status: 405, body: { ok: false, error: "method" } };
-    if (!ctx.state.ips.allow(clientIp(input.headers), ctx.deps.now())) {
+    if (!READS.allow(clientIp(input.headers), ctx.deps.now())) {
       return { status: 429, body: { ok: false, error: "rate limit" } };
     }
     return readLines(ctx, input.query ?? "");
