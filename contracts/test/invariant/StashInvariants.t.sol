@@ -98,16 +98,18 @@ contract StashHandler is Test {
     function withdraw(uint256 who, uint256 amt) external {
         address a = actors[who % 3];
         uint256 bal = stash.balance(a);
-        amt = bound(amt, 0, bal + 1e6);
+        amt = amt % 5 == 0 ? bal : bound(amt, 0, bal + 1e6);
         uint256 wallet = usdg.balanceOf(a);
         uint256 fees = usdg.balanceOf(feeWallet);
         vm.prank(a);
         uint256 fee = stash.withdrawFee();
         try stash.withdraw(amt) {
-            paidOut += amt - fee;
-            feesPaid += fee;
-            if (usdg.balanceOf(a) != wallet + amt - fee) revertMoved = true;
-            if (usdg.balanceOf(feeWallet) != fees + fee) revertMoved = true;
+            uint256 taken = amt <= fee ? amt : fee;
+            if (amt <= fee && amt != bal) revertMoved = true;
+            paidOut += amt - taken;
+            feesPaid += taken;
+            if (usdg.balanceOf(a) != wallet + amt - taken) revertMoved = true;
+            if (usdg.balanceOf(feeWallet) != fees + taken) revertMoved = true;
         } catch {
             if (stash.balance(a) != bal) revertMoved = true;
         }
@@ -118,15 +120,17 @@ contract StashHandler is Test {
         address a = actors[who % 3];
         uint256 bal = stash.balance(a);
         uint256 fee = stash.withdrawFee();
-        amt = bound(amt, 0, bal + 1);
+        amt = amt % 5 == 0 ? bal : bound(amt, 0, bal + 1);
         uint256 wallet = usdg.balanceOf(a);
         uint256 fees = usdg.balanceOf(feeWallet);
         Stash.Withdrawal memory order = Stash.Withdrawal(a, amt, stash.nonces(a), block.timestamp + 1 hours);
         try stash.withdraw(order, _sign(accountPks[who % 3], stash.hashWithdraw(order))) {
-            paidOut += amt - fee;
-            feesPaid += fee;
-            if (usdg.balanceOf(a) != wallet + amt - fee) revertMoved = true;
-            if (usdg.balanceOf(feeWallet) != fees + fee) revertMoved = true;
+            uint256 taken = amt <= fee ? amt : fee;
+            if (amt <= fee && amt != bal) revertMoved = true;
+            paidOut += amt - taken;
+            feesPaid += taken;
+            if (usdg.balanceOf(a) != wallet + amt - taken) revertMoved = true;
+            if (usdg.balanceOf(feeWallet) != fees + taken) revertMoved = true;
         } catch {
             if (stash.balance(a) != bal || usdg.balanceOf(feeWallet) != fees) revertMoved = true;
         }

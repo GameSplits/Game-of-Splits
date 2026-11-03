@@ -26,7 +26,7 @@ contract StashForkTest is Test {
         }
     }
 
-    function test_wiresLiveBooths_andDirectWithdrawHasNoFee() public {
+    function test_wiresLiveBooths_andDirectWithdrawPaysFee() public {
         if (!forked) vm.skip(true, "testnet fork unavailable");
         (FairCore core, LastArrow arrow, SheriffsSeat seat, IERC20 usdg, Stash stash, address feeTo) = _deploy();
         _assert7555(core, arrow, seat, usdg);
@@ -47,8 +47,8 @@ contract StashForkTest is Test {
         stash.withdraw(10e6);
         vm.stopPrank();
         assertEq(stash.balance(player), 15e6);
-        assertEq(usdg.balanceOf(player), wallet + 10e6);
-        assertEq(usdg.balanceOf(feeTo), 0);
+        assertEq(usdg.balanceOf(player), wallet + 9e6);
+        assertEq(usdg.balanceOf(feeTo), 1e6);
     }
 
     function test_claimBatch_onFork() public {
@@ -107,8 +107,8 @@ contract StashForkTest is Test {
         vm.prank(player);
         stash.withdraw(all);
         assertEq(stash.balance(player), 0);
-        assertEq(usdg.balanceOf(player), wallet + stashBal + claimable);
-        assertEq(usdg.balanceOf(stash.feeWallet()), fees, "direct withdraw pays no fee");
+        assertEq(usdg.balanceOf(player), wallet + stashBal + claimable - 1e6);
+        assertEq(usdg.balanceOf(stash.feeWallet()), fees + 1e6, "direct withdraw pays the fee");
     }
 
     function _deploy()

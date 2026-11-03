@@ -263,7 +263,8 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         emit Deposited(msg.sender, amount);
     }
 
-    /// @notice Send `amount` minus the withdrawal fee to the caller. The main wallet pays its own gas.
+    /// @notice Send `amount` minus the withdrawal fee to the caller. The main wallet pays its own gas. A whole balance
+    ///         at or below the fee is taken as the fee, so the payout is zero.
     function withdraw(uint256 amount) external nonReentrant {
         _withdraw(msg.sender, amount, withdrawFee);
     }
@@ -292,7 +293,8 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
 
     // ================================================================== owner, relayed
 
-    /// @notice Relayed withdrawal. The owner signs. The payout is `amount` minus the withdrawal fee.
+    /// @notice Relayed withdrawal. The owner signs. The payout is `amount` minus the withdrawal fee. A whole balance at
+    ///         or below the fee is taken as the fee, so the payout is zero.
     function withdraw(Withdrawal calldata order, bytes calldata signature) external nonReentrant {
         _consumeOwner(order.owner, _withdrawStruct(order), order.nonce, order.deadline, signature);
         _withdraw(order.owner, order.amount, withdrawFee);
@@ -382,14 +384,20 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         emit KeyRevoked(owner, key, epoch);
     }
 
+    /// @dev A balance at or below the fee can only be withdrawn whole. All of it goes to the fee wallet and nothing
+    ///      is paid out, so any balance can be emptied to zero. A partial amount at or below the fee still reverts.
     function _withdraw(address owner, uint256 amount, uint256 fee) internal {
         if (amount == 0) revert ZeroAmount();
-        if (amount <= fee) revert AmountNotAboveFee();
         uint256 bal = _balances[owner];
         if (bal < amount) revert InsufficientBalance();
+        if (amount <= fee) {
+            if (amount != bal) revert AmountNotAboveFee();
+            fee = amount;
+        }
         _balances[owner] = bal - amount;
         totalHeld -= amount;
-        _pay(owner, amount - fee);
+        uint256 payout = amount - fee;
+        if (payout != 0) _pay(owner, payout);
         if (fee != 0) _pay(feeWallet, fee);
         emit Withdrawn(owner, amount, fee);
     }
