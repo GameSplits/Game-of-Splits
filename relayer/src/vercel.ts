@@ -2,6 +2,7 @@
 
 import { loadConfig, loadOrigins, type OriginPolicy } from "./config.ts";
 import { corsHeaders, handle, toResponse, type HandleInput } from "./http.ts";
+import { lineStoreFromEnv } from "./lines.ts";
 import { createRuntime } from "./runtime.ts";
 
 const MAX_BODY = 8192;
@@ -10,7 +11,7 @@ let runtime: ReturnType<typeof createRuntime> | undefined;
 let origins: OriginPolicy | undefined;
 
 function getRuntime(): ReturnType<typeof createRuntime> {
-  if (!runtime) runtime = createRuntime(loadConfig(process.env));
+  if (!runtime) runtime = { ...createRuntime(loadConfig(process.env)), lines: lineStoreFromEnv(process.env) };
   return runtime;
 }
 
@@ -37,6 +38,7 @@ async function web(request: Request): Promise<Response> {
     route: url.searchParams.get("route"),
     headers,
     body,
+    query: url.search,
   });
   return toResponse(out, cors);
 }

@@ -5,6 +5,7 @@ import { assertSignature, HttpError, parseAction, ZERO_ADDRESS } from "./actions
 import { isAllowedOrigin, type OriginPolicy, type RelayerConfig } from "./config.ts";
 import type { SignedAction } from "./eip712.ts";
 import { LOW_BALANCE_WEI } from "./policy.ts";
+import { cleanLine, isTxHash, type LineStore } from "./lines.ts";
 import { submitShot, type RelayDeps, type RelayState } from "./relay.ts";
 
 export interface HandleCtx {
@@ -13,6 +14,8 @@ export interface HandleCtx {
   deps: RelayDeps;
   state: RelayState;
   sessionKey(owner: Address): Promise<Address>;
+  /** Where one-click Seat lines are kept. Null when no store is configured: takes still go through, lines are not saved. */
+  lines?: LineStore | null;
 }
 
 export interface HandleInput {
@@ -21,6 +24,8 @@ export interface HandleInput {
   route: string | null;
   headers: Record<string, string | string[] | undefined>;
   body: string;
+  /** The query string, with or without the leading "?". */
+  query?: string;
 }
 
 export interface HandleOutput {
@@ -75,6 +80,13 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
     if (input.method !== "GET") return { status: 405, body: { ok: false, error: "method" } };
     return health(ctx);
   }
+  if (name === "lines") {
+    if (input.method !== "GET") return { status: 405, body: { ok: false, error: "method" } };
+    if (!ctx.state.ips.allow(clientIp(input.headers), ctx.deps.now())) {
+      return { status: 429, body: { ok: false, error: "rate limit" } };
+    }
+    return readLines(ctx, input.query ?? "");
+  }
   if (!isAction(name)) return { status: 404, body: { ok: false, error: "not found" } };
   if (input.method !== "POST") return { status: 405, body: { ok: false, error: "method" } };
   if (!ctx.state.ips.allow(clientIp(input.headers), ctx.deps.now())) {
@@ -95,10 +107,46 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
       await assertSignature(ctx.cfg, parsed.action as SignedAction, parsed.action.message.owner);
     }
     const result = await submitShot(ctx.deps, ctx.state, parsed.request);
+    if (name === "take" && result.body.ok && result.body.hash) {
+      const saved = await saveLine(ctx, result.body.hash, input.body);
+      if (saved !== null) return { status: result.status, body: { ...result.body, line: saved } };
+    }
     return { status: result.status, body: result.body };
   } catch (err) {
     if (err instanceof HttpError) return { status: err.status, body: { ok: false, error: err.message } };
     return { status: 400, body: { ok: false, error: "bad request" } };
+  }
+}
+
+/** Saves the player's own line for a take this relayer just sent. A store error never fails the take. Returns
+ *  "saved", "refused" (filtered or empty) or null when no line was asked for. */
+async function saveLine(ctx: HandleCtx, hash: string, raw: string): Promise<"saved" | "refused" | "unsaved" | null> {
+  let line: unknown;
+  try {
+    line = (JSON.parse(raw) as Record<string, unknown>).line;
+  } catch {
+    return null;
+  }
+  if (line === undefined || line === null || line === "") return null;
+  const clean = cleanLine(line);
+  if (!clean) return "refused";
+  if (!ctx.lines) return "unsaved";
+  try {
+    await ctx.lines.set(hash, clean);
+    return "saved";
+  } catch {
+    return "unsaved";
+  }
+}
+
+async function readLines(ctx: HandleCtx, query: string): Promise<HandleOutput> {
+  const tx = new URLSearchParams(query.replace(/^\?/, "")).get("tx") ?? "";
+  const hashes = [...new Set(tx.split(",").map((h) => h.trim().toLowerCase()).filter(isTxHash))].slice(0, 50);
+  if (!ctx.lines || hashes.length === 0) return { status: 200, body: { ok: true, lines: {} } };
+  try {
+    return { status: 200, body: { ok: true, lines: await ctx.lines.getMany(hashes) } };
+  } catch {
+    return { status: 503, body: { ok: false, error: "lines unavailable" } };
   }
 }
 

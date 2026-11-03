@@ -13,6 +13,8 @@
     { "source": "/authorize-key", "destination": "/api/relay?route=authorize-key" },
     { "source": "/set-limit", "destination": "/api/relay?route=set-limit" },
     { "source": "/revoke-key", "destination": "/api/relay?route=revoke-key" },
+    { "source": "/lines", "destination": "/api/relay?route=lines" },
+    { "source": "/api/lines", "destination": "/api/relay?route=lines" },
     { "source": "/api/health", "destination": "/api/relay?route=health" },
     { "source": "/api/shoot", "destination": "/api/relay?route=shoot" },
     { "source": "/api/take", "destination": "/api/relay?route=take" },

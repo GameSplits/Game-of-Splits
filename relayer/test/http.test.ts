@@ -5,8 +5,9 @@ import { encodeFunctionData, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { stashAbi } from "../src/abi.ts";
 import { TESTNET_STASH, loadConfig } from "../src/config.ts";
-import { shootTypes, stashDomain, withdrawTypes } from "../src/eip712.ts";
+import { shootTypes, stashDomain, takeTypes, withdrawTypes } from "../src/eip712.ts";
 import { clientIp, handle, type HandleCtx, type HandleInput } from "../src/http.ts";
+import { MemoryLines, cleanLine } from "../src/lines.ts";
 import { pingHealthcheck } from "../src/ping.ts";
 import { NonceQueue, OwnerNonceGuard, RateLimit, ResignBook } from "../src/policy.ts";
 
@@ -323,4 +324,90 @@ test("the healthcheck ping is a POST and a dead url does not throw", async () =>
   assert.equal(method, "POST");
   await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
   await pingHealthcheck("http://127.0.0.1:1/absent");
+});
+
+async function takeBody(line?: unknown): Promise<string> {
+  const message = { owner: owner.address, maxPrice: 10n, presetId: 0, color: 3, nonce: 0n, deadline: 2_000_000_000n, epoch: 1n };
+  const sig = await session.signTypedData({ domain: stashDomain(46630, TESTNET_STASH), types: takeTypes, primaryType: "Take", message });
+  return JSON.stringify({
+    chainId: 46630,
+    stash: TESTNET_STASH,
+    order: {
+      owner: message.owner,
+      maxPrice: "10",
+      presetId: 0,
+      color: 3,
+      nonce: "0",
+      deadline: message.deadline.toString(),
+      epoch: "1",
+    },
+    signature: sig,
+    ...(line === undefined ? {} : { line }),
+  });
+}
+
+const HASH = `0x${"ab".repeat(32)}`;
+
+test("a one-click take saves the player's own line under the take's hash", async () => {
+  const lines = new MemoryLines();
+  const h = harness({ lines });
+  h.ctx.deps.send = async () => HASH as Hex;
+  const out = await handle(h.ctx, post("/take", await takeBody("  Dawn is   mine  ")));
+  assert.equal(out.status, 200);
+  assert.equal(out.body?.line, "saved");
+  assert.deepEqual(await lines.getMany([HASH]), { [HASH]: "Dawn is mine" });
+  const read = await handle(h.ctx, { method: "GET", path: "/lines", route: "lines", headers: {}, body: "", query: `?tx=${HASH},nothash` });
+  assert.deepEqual(read.body, { ok: true, lines: { [HASH]: "Dawn is mine" } });
+});
+
+test("a take without a line, or with a filtered line, still goes through", async () => {
+  const lines = new MemoryLines();
+  const h = harness({ lines });
+  h.ctx.deps.send = async () => HASH as Hex;
+  const plain = await handle(h.ctx, post("/take", await takeBody()));
+  assert.equal(plain.status, 200);
+  assert.equal(plain.body?.line, undefined);
+  const h2 = harness({ lines });
+  h2.ctx.deps.send = async () => HASH as Hex;
+  const bad = await handle(h2.ctx, post("/take", await takeBody("visit www.scam.xyz now")));
+  assert.equal(bad.status, 200);
+  assert.equal(bad.body?.line, "refused");
+  assert.deepEqual(await lines.getMany([HASH]), {});
+});
+
+test("a store failure never fails the take", async () => {
+  const h = harness({ lines: { set: async () => { throw new Error("down"); }, getMany: async () => ({}) } });
+  h.ctx.deps.send = async () => HASH as Hex;
+  const out = await handle(h.ctx, post("/take", await takeBody("Hold the line")));
+  assert.equal(out.status, 200);
+  assert.equal(out.body?.line, "unsaved");
+});
+
+test("lines are cleaned and filtered", () => {
+  assert.equal(cleanLine("x".repeat(80))?.length, 64);
+  assert.equal(cleanLine("grapes and scunthorpe"), "grapes and scunthorpe");
+  assert.equal(cleanLine("r4pe"), null);
+  assert.equal(cleanLine("send me your seed phrase"), null);
+  assert.equal(cleanLine("t.me/x"), null);
+  assert.equal(cleanLine("   "), null);
+  assert.equal(cleanLine(42), null);
+});
+
+test("the Upstash store sends SET with a TTL and reads with MGET", async () => {
+  const { UpstashLines } = await import("../src/lines.ts");
+  const calls: Array<{ url: string; auth: string; body: unknown }> = [];
+  const fake = (async (url: string, init: RequestInit) => {
+    calls.push({ url, auth: String((init.headers as Record<string, string>).authorization), body: JSON.parse(String(init.body)) });
+    const cmd = (JSON.parse(String(init.body)) as unknown[][])[0];
+    const result = cmd[0] === "MGET" ? ["Dawn is mine", null] : "OK";
+    return new Response(JSON.stringify([{ result }]), { status: 200 });
+  }) as unknown as typeof fetch;
+  const store = new UpstashLines("https://example.upstash.io/", "tok", fake);
+  await store.set(HASH.toUpperCase().replace("0X", "0x"), "Dawn is mine");
+  const other = `0x${"cd".repeat(32)}`;
+  assert.deepEqual(await store.getMany([HASH, other]), { [HASH]: "Dawn is mine" });
+  assert.equal(calls[0].url, "https://example.upstash.io/pipeline");
+  assert.equal(calls[0].auth, "Bearer tok");
+  assert.deepEqual(calls[0].body, [["SET", `seatline:${HASH}`, "Dawn is mine", "EX", String(60 * 60 * 24 * 120)]]);
+  assert.deepEqual(calls[1].body, [["MGET", `seatline:${HASH}`, `seatline:${other}`]]);
 });
