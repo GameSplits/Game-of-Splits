@@ -1,0 +1,26 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm run build",
+  "functions": {
+    "api/relay.mjs": { "maxDuration": 120, "includeFiles": "dist/**" }
+  },
+  "rewrites": [
+    { "source": "/health", "destination": "/api/relay?route=health" },
+    { "source": "/shoot", "destination": "/api/relay?route=shoot" },
+    { "source": "/take", "destination": "/api/relay?route=take" },
+    { "source": "/withdraw", "destination": "/api/relay?route=withdraw" },
+    { "source": "/authorize-key", "destination": "/api/relay?route=authorize-key" },
+    { "source": "/set-limit", "destination": "/api/relay?route=set-limit" },
+    { "source": "/revoke-key", "destination": "/api/relay?route=revoke-key" },
+    { "source": "/lines", "destination": "/api/relay?route=lines" },
+    { "source": "/api/lines", "destination": "/api/relay?route=lines" },
+    { "source": "/api/health", "destination": "/api/relay?route=health" },
+    { "source": "/api/shoot", "destination": "/api/relay?route=shoot" },
+    { "source": "/api/take", "destination": "/api/relay?route=take" },
+    { "source": "/api/withdraw", "destination": "/api/relay?route=withdraw" },
+    { "source": "/api/authorize-key", "destination": "/api/relay?route=authorize-key" },
+    { "source": "/api/set-limit", "destination": "/api/relay?route=set-limit" },
+    { "source": "/api/revoke-key", "destination": "/api/relay?route=revoke-key" }
+  ]
+}

@@ -33,6 +33,15 @@ Run: `slither . --filter-paths "lib/|test/|script/|src/testnet/" --exclude-infor
 |---|---|---|
 | unused-return | `AlmsVote.clearWindows` reads only `start` from `core.fairs(fairId)` | Only the start is needed: clearing is allowed only before the Fair starts. A Fair with windows always exists (W1), so `start` is never the zero of an unknown Fair. |
 
+## Stash
+
+Run on `src/Stash.sol` with Slither, medium and high, OpenZeppelin 5.4.0.
+
+| Finding | Where | Verdict |
+| --- | --- | --- |
+| reentrancy-balance | `Stash._play` reads the USDG balance, calls the booth, then requires the balance delta to equal the quoted price | Intended. `shoot` and `take` are `nonReentrant`. The debit is written before the call. A mismatched pull reverts the whole transaction, and the FairCore approval is reset before the fee moves. |
+| uninitialized-local | seat `message` on the arrow path | Fixed by setting the unused line to an empty string. |
+
 ## v3.6 re-run (21 medium/high results: the v3.5 set plus two)
 
 | Finding | Where | Verdict |

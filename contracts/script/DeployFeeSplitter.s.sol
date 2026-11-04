@@ -8,7 +8,7 @@ import {FeeSplitter} from "../src/FeeSplitter.sol";
 ///
 ///         Required env: OWNER, PURSES, VAULT, REBATE, BURN_BUYER, OPS, FAIR_CORE, RAKE_BUYER.
 ///         Optional: WIF (default Robinhood Chain $wif), and PURSES_BPS / VAULT_BPS / REBATE_BPS / BURN_BPS / OPS_BPS
-///         (default 4000 / 2500 / 1500 / 1000 / 1000). The five bps must sum to 10000.
+///         (default 0 / 5000 / 0 / 4000 / 1000, launch split b). The five bps must sum to 10000.
 ///
 ///         Purses must be a holding address, not FairCore or a booth: a plain transfer is not credited to a purse.
 ///         Vault may be LocksleyVault for ERC-20s (`balanceOf` is the ledger). It rejects ETH.
@@ -33,10 +33,10 @@ contract DeployFeeSplitter is Script {
             ops: vm.envAddress("OPS")
         });
         FeeSplitter.FeeSplit memory split = FeeSplitter.FeeSplit({
-            pursesBps: _bps("PURSES_BPS", 4000),
-            vaultBps: _bps("VAULT_BPS", 2500),
-            rebateBps: _bps("REBATE_BPS", 1500),
-            burnBps: _bps("BURN_BPS", 1000),
+            pursesBps: _bps("PURSES_BPS", 0),
+            vaultBps: _bps("VAULT_BPS", 5000),
+            rebateBps: _bps("REBATE_BPS", 0),
+            burnBps: _bps("BURN_BPS", 4000),
             opsBps: _bps("OPS_BPS", 1000)
         });
         require(

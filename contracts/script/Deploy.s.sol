@@ -52,7 +52,7 @@ abstract contract SafeCheck is Script {
     /// ours. The deploy therefore only accepts the exact address the owner confirms in the Safe app, written here in a
     /// reviewed commit (an env var could be swapped together with the others). Zero = not pinned yet = no deploy.
     /// Fork rehearsals (script/e2e/*.sh) write their throwaway Safe into the TEMP COPY of this file, never here.
-    address internal constant PINNED_MAINNET_SAFE = address(0); // TODO(owner): Safe address on 4663, from the Safe app
+    address internal constant PINNED_MAINNET_SAFE = 0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a; // Confirmed 4 Nov 2026: SafeL2 on 4663
     // Confirmed 29 Oct 2026: SafeL2 1.5.0 on Robinhood Chain testnet (46630).
     address internal constant PINNED_TESTNET_SAFE = 0xDF3d35A99af7A1A3fdE128b8FDFa0D60aE9A1F00;
 
