@@ -24,7 +24,6 @@ contract MainnetBooths is DeployBase, MainnetAddrs {
 contract DeployStashMainnetForkTest is Test {
     address internal constant SAFE = 0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a;
     address internal constant USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
-    bytes32 internal constant SAFE_NONCE_SLOT = bytes32(uint256(5));
 
     bool internal forked;
 
@@ -50,14 +49,7 @@ contract DeployStashMainnetForkTest is Test {
         }
         (address core, address arrow, address seat) = script.booths();
 
-        // While the Safe has never executed a tx the script refuses it. Set the nonce on this fork only to go on.
-        if (ISafeView(SAFE).nonce() == 0) {
-            console2.log("Safe nonce is 0 on mainnet: the real run refuses until the signers execute one tx");
-            vm.expectRevert(bytes("SAFE: never used: the signers must execute one tx on it first"));
-            script.run();
-            vm.store(SAFE, SAFE_NONCE_SLOT, bytes32(uint256(1)));
-            assertEq(ISafeView(SAFE).nonce(), 1);
-        }
+        assertGe(ISafeView(SAFE).nonce(), 1, "Safe has never executed a tx");
 
         Stash stash = script.run();
 
