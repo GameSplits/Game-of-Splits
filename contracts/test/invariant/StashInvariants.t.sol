@@ -47,6 +47,8 @@ contract StashHandler is Test {
     bool public expiredWorked;
     bool public directCharged;
     bool public directSpent;
+    bool public badFeeSet;
+    bool public wrongShotFee;
 
     Stash.Shoot internal lastShoot;
     bytes internal lastSig;
@@ -177,7 +179,7 @@ contract StashHandler is Test {
 
     function setLimit(uint256 who, uint256 limit) external {
         address a = actors[who % 3];
-        (,,,, uint256 spent) = stash.session(a);
+        (,,,, uint256 spent,) = stash.session(a);
         limit = bound(limit, 1, 500e6);
         vm.prank(a);
         if (limit != type(uint128).max && limit < spent) {
@@ -243,7 +245,7 @@ contract StashHandler is Test {
 
     function keyWithdraw(uint256 who, uint256 amt) external {
         address a = actors[who % 3];
-        (address k,,,,) = stash.session(a);
+        (address k,,,,,) = stash.session(a);
         uint256 before = stash.balance(a);
         if (k != address(0)) {
             vm.prank(k);
@@ -276,6 +278,22 @@ contract StashHandler is Test {
         } catch {}
         vm.prank(raiser);
         try stash.raiseCap(next) {} catch {}
+        _cap();
+    }
+
+    /// A stranger never sets the fee. The raiser sets it up to the max until renounced, then the fee is frozen.
+    function setShotFee(uint256 newFee, uint256 who) external {
+        uint256 max = stash.MAX_SHOT_FEE();
+        newFee = bound(newFee, 0, max + max / 4);
+        uint256 before = stash.shotFee();
+        bool live = stash.capRaiser() == raiser;
+        vm.prank(actors[who % 3]);
+        try stash.setShotFee(newFee) {
+            badFeeSet = true;
+        } catch {}
+        vm.prank(raiser);
+        try stash.setShotFee(newFee) {} catch {}
+        if (stash.shotFee() != (live && newFee <= max ? newFee : before)) badFeeSet = true;
         _cap();
     }
 
@@ -314,7 +332,7 @@ contract StashHandler is Test {
         if (!ready) return;
         address a = actors[who % 3];
         uint256 spentBefore;
-        (,,,, spentBefore) = stash.session(a);
+        (,,,, spentBefore,) = stash.session(a);
         bool dead = _dead(a);
         uint256 before = stash.balance(a);
         uint256 fees = usdg.balanceOf(feeWallet);
@@ -336,7 +354,7 @@ contract StashHandler is Test {
             vm.prank(a);
             try stash.shoot(order.maxPrice, order.expectedRound) {
                 _notePlay(a, order.maxPrice, before, fees, coreBefore, wallet, false);
-                (,,,, uint256 spentAfter) = stash.session(a);
+                (,,,, uint256 spentAfter,) = stash.session(a);
                 if (spentAfter != spentBefore) directSpent = true;
                 shots += 1;
             } catch {
@@ -352,12 +370,12 @@ contract StashHandler is Test {
         if (price == 0) return;
         extra = bound(extra, 0, 2e6);
         uint256 maxPrice = price + extra;
-        (,, uint48 epoch,,) = stash.session(a);
+        (,, uint48 epoch,,,) = stash.session(a);
         bool dead = _dead(a);
         Stash.Take memory order = Stash.Take(a, maxPrice, presetId, color, stash.nonces(a), block.timestamp + 1 hours, epoch);
         bytes memory sig = _sign(keyPks[who % 3], stash.hashTake(order));
         uint256 spentBefore;
-        (,,,, spentBefore) = stash.session(a);
+        (,,,, spentBefore,) = stash.session(a);
         uint256 before = stash.balance(a);
         uint256 fees = usdg.balanceOf(feeWallet);
         uint256 coreBefore = usdg.balanceOf(address(core));
@@ -376,7 +394,7 @@ contract StashHandler is Test {
             vm.prank(a);
             try stash.take(maxPrice, presetId, color) {
                 _notePlay(a, maxPrice, before, fees, coreBefore, wallet, false);
-                (,,,, uint256 spentAfter) = stash.session(a);
+                (,,,, uint256 spentAfter,) = stash.session(a);
                 if (spentAfter != spentBefore) directSpent = true;
                 takes += 1;
             } catch {
@@ -394,7 +412,7 @@ contract StashHandler is Test {
         uint256 price = arrow.currentPrice();
         if (price == 0) return (false, order, sig);
         extra = bound(extra, 0, 2e6);
-        (,, uint48 epoch,,) = stash.session(a);
+        (,, uint48 epoch,,,) = stash.session(a);
         arb.set(arb.n() + 1);
         order = Stash.Shoot({
             owner: a,
@@ -426,7 +444,11 @@ contract StashHandler is Test {
         if (!asKey && feeDelta != 0) directCharged = true;
         feesPaid += feeDelta;
         paidToCore += coreDelta;
-        (,,, uint256 limit, uint256 spent) = stash.session(a);
+        (,,, uint256 limit, uint256 spent, uint256 feeCap) = stash.session(a);
+        if (asKey) {
+            uint256 fee = stash.shotFee();
+            if (feeDelta != (fee < feeCap ? fee : feeCap)) wrongShotFee = true;
+        }
         if (limit != type(uint128).max && spent > limit) overLimit = true;
     }
 
@@ -440,7 +462,7 @@ contract StashHandler is Test {
     }
 
     function _dead(address a) internal view returns (bool) {
-        (address k, uint48 exp,,,) = stash.session(a);
+        (address k, uint48 exp,,,,) = stash.session(a);
         return k == address(0) || block.timestamp >= exp;
     }
 
@@ -507,7 +529,7 @@ contract StashInvariantTest is Base {
         h = new StashHandler(stash, core, la, seat, usdg, arb, owner, raiser, actors, accountPks, keys, keyPks);
         h.seed();
 
-        bytes4[] memory sels = new bytes4[](18);
+        bytes4[] memory sels = new bytes4[](19);
         sels[0] = h.deposit.selector;
         sels[1] = h.withdraw.selector;
         sels[2] = h.withdrawRelay.selector;
@@ -526,6 +548,7 @@ contract StashInvariantTest is Base {
         sels[15] = h.raiseCap.selector;
         sels[16] = h.renounce.selector;
         sels[17] = h.donate.selector;
+        sels[18] = h.setShotFee.selector;
         targetContract(address(h));
         targetSelector(FuzzSelector({addr: address(h), selectors: sels}));
     }
@@ -547,6 +570,26 @@ contract StashInvariantTest is Base {
         assertFalse(h.revertMoved());
         assertFalse(h.overMax());
         assertFalse(h.overLimit());
+    }
+
+    function test_handlerShotFee() public {
+        uint256 max = stash.MAX_SHOT_FEE();
+        h.setShotFee(max, 0);
+        assertEq(stash.shotFee(), max);
+        h.shoot(0, 0);
+        h.setShotFee(max + 1, 1);
+        assertEq(stash.shotFee(), max);
+        h.authorize(1, 100e6, 2 hours);
+        h.take(1, 0);
+        h.setShotFee(0.01e6, 2);
+        assertEq(stash.shotFee(), 0.01e6);
+        h.shoot(2, 0);
+        h.renounce(0);
+        h.setShotFee(0.02e6, 0);
+        assertEq(stash.shotFee(), 0.01e6, "renounce freezes the fee");
+        assertGt(h.shots(), 0);
+        assertGt(h.takes(), 0);
+        invariant_balancesPlusFees();
     }
 
     function test_handlerWithdraws() public {
@@ -586,9 +629,13 @@ contract StashInvariantTest is Base {
         assertFalse(h.expiredWorked(), "expired key played");
         assertFalse(h.directCharged(), "direct call paid a fee");
         assertFalse(h.directSpent(), "direct call spent the limit");
+        assertFalse(h.badFeeSet(), "setShotFee broke its rules");
+        assertFalse(h.wrongShotFee(), "relayed play paid other than min(shotFee, feeCap)");
+        assertLe(stash.shotFee(), stash.MAX_SHOT_FEE(), "shot fee above max");
         for (uint256 i; i < h.actorCount(); ++i) {
-            (,,, uint256 limit, uint256 spent) = stash.session(h.actors(i));
+            (,,, uint256 limit, uint256 spent, uint256 feeCap) = stash.session(h.actors(i));
             if (limit != type(uint128).max) assertLe(spent, limit);
+            assertLe(feeCap, stash.MAX_SHOT_FEE(), "fee cap above max");
         }
     }
 

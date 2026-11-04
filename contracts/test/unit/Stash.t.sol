@@ -421,7 +421,7 @@ contract StashTest is Test {
         vm.expectRevert(Stash.BadSignature.selector);
         stash.authorizeKey(auth, asig);
 
-        (address still,,,,) = stash.session(player);
+        (address still,,,,,) = stash.session(player);
         assertEq(still, key);
         assertEq(stash.balance(player), bal);
     }
@@ -436,7 +436,7 @@ contract StashTest is Test {
         assertEq(token.allowance(address(stash), address(puller)), 0);
         assertEq(arrow.seenPlayer(), player);
         assertEq(arrow.seenAllowance(), 5e6);
-        (,,,, uint256 spent) = stash.session(player);
+        (,,,, uint256 spent,) = stash.session(player);
         assertEq(spent, 1e6 + stash.shotFee());
     }
 
@@ -445,7 +445,7 @@ contract StashTest is Test {
         stash.shoot(5e6, 1);
         assertEq(stash.balance(player), 10_000e6 - 1e6);
         assertEq(token.balanceOf(feeTo), 0);
-        (,,,, uint256 spent) = stash.session(player);
+        (,,,, uint256 spent,) = stash.session(player);
         assertEq(spent, 0);
         assertEq(token.allowance(address(stash), address(puller)), 0);
     }
@@ -467,7 +467,7 @@ contract StashTest is Test {
         vm.prank(player);
         stash.setLimit(tight);
         _relayShoot(50e6);
-        (,,, uint256 limit, uint256 spent) = stash.session(player);
+        (,,, uint256 limit, uint256 spent,) = stash.session(player);
         assertEq(spent, limit);
         uint256 bal = stash.balance(player);
         Stash.Shoot memory again = _shootOrder(50e6);
@@ -503,7 +503,7 @@ contract StashTest is Test {
         assertEq(token.balanceOf(address(stash)), tokens);
         assertEq(token.balanceOf(feeTo), 0);
         assertEq(token.allowance(address(stash), address(puller)), 0);
-        (,,,, uint256 spent) = stash.session(player);
+        (,,,, uint256 spent,) = stash.session(player);
         assertEq(spent, 0);
     }
 
@@ -575,7 +575,7 @@ contract StashTest is Test {
         stash.authorizeKey(other, type(uint128).max, block.timestamp + 1 days);
         vm.expectRevert(Stash.StaleEpoch.selector);
         stash.shoot(fresh, freshSig);
-        (address nowKey,,,,) = stash.session(player);
+        (address nowKey,,,,,) = stash.session(player);
         assertEq(nowKey, other);
     }
 
@@ -589,7 +589,7 @@ contract StashTest is Test {
         stash.authorizeKey(key, 1e6, t);
         vm.prank(player);
         stash.authorizeKey(key, 1e6, t + 7 days);
-        (, uint48 expiry,,,) = stash.session(player);
+        (, uint48 expiry,,,,) = stash.session(player);
         assertEq(expiry, t + 7 days);
 
         vm.warp(t + 7 days);
@@ -604,7 +604,7 @@ contract StashTest is Test {
 
     function test_setLimit_cannotDropBelowSpent() public {
         _relayShoot(5e6);
-        (,,,, uint256 spent) = stash.session(player);
+        (,,,, uint256 spent,) = stash.session(player);
         vm.prank(player);
         vm.expectRevert(Stash.LimitBelowSpent.selector);
         stash.setLimit(spent - 1);
@@ -612,17 +612,17 @@ contract StashTest is Test {
         stash.setLimit(spent);
         vm.prank(player);
         stash.setLimit(type(uint128).max);
-        (,,, uint256 limit,) = stash.session(player);
+        (,,, uint256 limit,,) = stash.session(player);
         assertEq(limit, type(uint128).max);
     }
 
     function test_depositAndWithdraw_doNotResetKey() public {
-        (address beforeKey, uint48 beforeExpiry, uint48 beforeEpoch,,) = stash.session(player);
+        (address beforeKey, uint48 beforeExpiry, uint48 beforeEpoch,,,) = stash.session(player);
         vm.prank(player);
         stash.deposit(2e6);
         vm.prank(player);
         stash.withdraw(2e6);
-        (address afterKey, uint48 afterExpiry, uint48 afterEpoch,,) = stash.session(player);
+        (address afterKey, uint48 afterExpiry, uint48 afterEpoch,,,) = stash.session(player);
         assertEq(afterKey, beforeKey);
         assertEq(afterExpiry, beforeExpiry);
         assertEq(afterEpoch, beforeEpoch);
@@ -650,7 +650,7 @@ contract StashTest is Test {
     function test_signedOwnerFlows() public {
         Stash.Authorize memory auth = Stash.Authorize(player, other, 50e6, block.timestamp + 2 days, stash.nonces(player), block.timestamp + 1 hours);
         stash.authorizeKey(auth, _sig(PLAYER_PK, stash.hashAuthorize(auth)));
-        (address nowKey,, uint48 epoch, uint256 limit, uint256 spent) = stash.session(player);
+        (address nowKey,, uint48 epoch, uint256 limit, uint256 spent,) = stash.session(player);
         assertEq(nowKey, other);
         assertEq(limit, 50e6);
         assertEq(spent, 0);
@@ -658,12 +658,12 @@ contract StashTest is Test {
 
         Stash.LimitChange memory lim = Stash.LimitChange(player, 40e6, stash.nonces(player), block.timestamp + 1 hours);
         stash.setLimit(lim, _sig(PLAYER_PK, stash.hashSetLimit(lim)));
-        (,,, limit,) = stash.session(player);
+        (,,, limit,,) = stash.session(player);
         assertEq(limit, 40e6);
 
         Stash.Revoke memory rev = Stash.Revoke(player, stash.nonces(player), block.timestamp + 1 hours);
         stash.revokeKey(rev, _sig(PLAYER_PK, stash.hashRevoke(rev)));
-        (nowKey,,,,) = stash.session(player);
+        (nowKey,,,,,) = stash.session(player);
         assertEq(nowKey, address(0));
     }
 
@@ -676,7 +676,7 @@ contract StashTest is Test {
         vm.stopPrank();
         Stash.Authorize memory auth = Stash.Authorize(address(wallet), key, 10e6, block.timestamp + 1 days, 0, block.timestamp + 1 hours);
         stash.authorizeKey(auth, hex"11");
-        (address nowKey,,,,) = stash.session(address(wallet));
+        (address nowKey,,,,,) = stash.session(address(wallet));
         assertEq(nowKey, key);
         wallet.setOk(false);
         Stash.Revoke memory rev = Stash.Revoke(address(wallet), 1, block.timestamp + 1 hours);
@@ -791,7 +791,7 @@ contract StashTest is Test {
 
     function test_mainnetDeployScript_feesSafeAndPresets() public {
         DeployStashMainnet deploy = new DeployStashMainnet();
-        assertEq(deploy.SHOT_FEE(), 0.05e6);
+        assertEq(deploy.SHOT_FEE(), 0.015e6);
         assertEq(deploy.WITHDRAW_FEE(), 1e6);
         assertEq(deploy.SAFE(), 0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a);
         assertEq(deploy.usdg(), 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168);
@@ -941,7 +941,7 @@ contract StashTest is Test {
             stash.authorizeKey(key, 1e6, exp);
         } else {
             stash.authorizeKey(key, 1e6, exp);
-            (, uint48 expiry,,,) = stash.session(player);
+            (, uint48 expiry,,,,) = stash.session(player);
             assertEq(uint256(expiry), exp);
         }
     }
@@ -969,6 +969,209 @@ contract StashTest is Test {
         }
     }
 
+    // ================================================================== shot fee
+
+    function test_setShotFee_onlyCapRaiser() public {
+        for (uint256 i; i < 3; ++i) {
+            address caller = [player, key, feeTo][i];
+            vm.prank(caller);
+            vm.expectRevert(Stash.NotCapRaiser.selector);
+            stash.setShotFee(0.01e6);
+        }
+        assertEq(stash.shotFee(), 0.05e6);
+        vm.prank(raiser);
+        stash.setShotFee(0.01e6);
+        assertEq(stash.shotFee(), 0.01e6);
+    }
+
+    function testFuzz_setShotFee_strangerReverts(address caller, uint256 newFee) public {
+        vm.assume(caller != raiser);
+        vm.prank(caller);
+        vm.expectRevert(Stash.NotCapRaiser.selector);
+        stash.setShotFee(newFee);
+        assertEq(stash.shotFee(), 0.05e6);
+    }
+
+    function test_setShotFee_revertsAfterRenounce() public {
+        vm.prank(raiser);
+        stash.setShotFee(0.02e6);
+        vm.prank(raiser);
+        stash.renounceCapRaiser();
+        vm.prank(raiser);
+        vm.expectRevert(Stash.NotCapRaiser.selector);
+        stash.setShotFee(0.01e6);
+        vm.prank(player);
+        vm.expectRevert(Stash.NotCapRaiser.selector);
+        stash.setShotFee(0.01e6);
+        assertEq(stash.shotFee(), 0.02e6);
+    }
+
+    function test_setShotFee_boundedByMax() public {
+        assertEq(stash.MAX_SHOT_FEE(), 0.25e6);
+        vm.startPrank(raiser);
+        vm.expectRevert(Stash.FeeAboveMax.selector);
+        stash.setShotFee(0.25e6 + 1);
+        stash.setShotFee(0.25e6);
+        assertEq(stash.shotFee(), 0.25e6);
+        stash.setShotFee(0);
+        assertEq(stash.shotFee(), 0);
+        vm.stopPrank();
+    }
+
+    function testFuzz_setShotFee_cap(uint256 newFee) public {
+        uint256 max = stash.MAX_SHOT_FEE();
+        vm.prank(raiser);
+        if (newFee > max) {
+            vm.expectRevert(Stash.FeeAboveMax.selector);
+            stash.setShotFee(newFee);
+            assertEq(stash.shotFee(), 0.05e6);
+        } else {
+            stash.setShotFee(newFee);
+            assertEq(stash.shotFee(), newFee);
+        }
+    }
+
+    function test_setShotFee_emits() public {
+        vm.expectEmit(address(stash));
+        emit Stash.ShotFeeSet(0.05e6, 0.015e6);
+        vm.prank(raiser);
+        stash.setShotFee(0.015e6);
+        vm.expectEmit(address(stash));
+        emit Stash.ShotFeeSet(0.015e6, 0.2e6);
+        vm.prank(raiser);
+        stash.setShotFee(0.2e6);
+    }
+
+    function test_session_snapshotsFee() public {
+        assertEq(_feeCap(), 0.05e6);
+        _setFee(0.2e6);
+        assertEq(_feeCap(), 0.05e6);
+        vm.prank(player);
+        stash.setLimit(1_000e6);
+        assertEq(_feeCap(), 0.05e6, "setLimit keeps the snapshot");
+        vm.prank(player);
+        stash.authorizeKey(key, 1_000e6, block.timestamp + 1 days);
+        assertEq(_feeCap(), 0.2e6);
+        vm.prank(player);
+        stash.revokeKey();
+        assertEq(_feeCap(), 0);
+    }
+
+    function test_loweredFee_appliesToExistingSession() public {
+        _setFee(0.015e6);
+        _assertShootFee(0.015e6);
+        _assertTakeFee(0.015e6);
+    }
+
+    function test_raisedFee_doesNotReachExistingSession() public {
+        _setFee(0.25e6);
+        _assertShootFee(0.05e6);
+        _assertTakeFee(0.05e6);
+        vm.prank(player);
+        stash.setLimit(1_000e6);
+        _assertShootFee(0.05e6);
+    }
+
+    function test_raisedFee_appliesToNewSession() public {
+        _setFee(0.25e6);
+        vm.prank(player);
+        stash.authorizeKey(key, type(uint128).max, block.timestamp + 1 days);
+        _assertShootFee(0.25e6);
+        _assertTakeFee(0.25e6);
+    }
+
+    function test_raisedFee_appliesToRelayedAuthorize() public {
+        _setFee(0.25e6);
+        Stash.Authorize memory auth =
+            Stash.Authorize(player, key, type(uint128).max, block.timestamp + 1 days, stash.nonces(player), block.timestamp + 1 hours);
+        stash.authorizeKey(auth, _sig(PLAYER_PK, stash.hashAuthorize(auth)));
+        _assertShootFee(0.25e6);
+    }
+
+    function test_feeRaisedBackBelowSnapshot_applies() public {
+        _setFee(0.01e6);
+        _assertShootFee(0.01e6);
+        _setFee(0.03e6);
+        _assertShootFee(0.03e6);
+        _setFee(0.2e6);
+        _assertShootFee(0.05e6);
+    }
+
+    function test_sessionAuthorizedAtLowFee_keepsItThroughRaise() public {
+        _setFee(0);
+        vm.prank(player);
+        stash.authorizeKey(key, type(uint128).max, block.timestamp + 1 days);
+        _setFee(0.25e6);
+        _assertShootFee(0);
+        _assertTakeFee(0);
+    }
+
+    function test_directPlay_paysNoFeeAfterRaise() public {
+        _setFee(0.25e6);
+        uint256 fees = token.balanceOf(feeTo);
+        vm.startPrank(player);
+        stash.shoot(5e6, 1);
+        stash.take(5e6, 0, 1);
+        vm.stopPrank();
+        assertEq(token.balanceOf(feeTo), fees);
+    }
+
+    function test_limit_countsTheFeeCharged() public {
+        _setFee(0.25e6);
+        uint256 tight = 1e6 + 0.05e6;
+        vm.prank(player);
+        stash.setLimit(tight);
+        _relayShoot(5e6);
+        (,,, uint256 limit, uint256 spent,) = stash.session(player);
+        assertEq(spent, tight);
+        assertEq(spent, limit);
+    }
+
+    function testFuzz_relayedFee_isMinOfFeeAndSnapshot(uint256 atAuth, uint256 atPlay, bool viaTake) public {
+        atAuth = bound(atAuth, 0, stash.MAX_SHOT_FEE());
+        atPlay = bound(atPlay, 0, stash.MAX_SHOT_FEE());
+        _setFee(atAuth);
+        vm.prank(player);
+        stash.authorizeKey(key, type(uint128).max, block.timestamp + 1 days);
+        _setFee(atPlay);
+        uint256 want = atPlay < atAuth ? atPlay : atAuth;
+        if (viaTake) _assertTakeFee(want);
+        else _assertShootFee(want);
+    }
+
+    function _setFee(uint256 newFee) internal {
+        vm.prank(raiser);
+        stash.setShotFee(newFee);
+    }
+
+    function _feeCap() internal view returns (uint256 feeCap) {
+        (,,,,, feeCap) = stash.session(player);
+    }
+
+    function _assertShootFee(uint256 want) internal {
+        uint256 bal = stash.balance(player);
+        uint256 fees = token.balanceOf(feeTo);
+        Stash.Shoot memory order = _shootOrder(5e6);
+        bytes memory sig = _sig(KEY_PK, stash.hashShoot(order));
+        vm.expectEmit(address(stash));
+        emit Stash.Played(player, key, address(arrow), 1e6, want);
+        stash.shoot(order, sig);
+        assertEq(stash.balance(player), bal - 1e6 - want);
+        assertEq(token.balanceOf(feeTo), fees + want);
+    }
+
+    function _assertTakeFee(uint256 want) internal {
+        uint256 bal = stash.balance(player);
+        uint256 fees = token.balanceOf(feeTo);
+        Stash.Take memory order = _takeOrder(0, 1, 5e6);
+        bytes memory sig = _sig(KEY_PK, stash.hashTake(order));
+        vm.expectEmit(address(stash));
+        emit Stash.Played(player, key, address(seat), 1e6, want);
+        stash.take(order, sig);
+        assertEq(stash.balance(player), bal - 1e6 - want);
+        assertEq(token.balanceOf(feeTo), fees + want);
+    }
+
     function _lines() internal pure returns (string[] memory lines) {
         lines = new string[](2);
         lines[0] = "Hold fast";
@@ -981,7 +1184,7 @@ contract StashTest is Test {
     }
 
     function _epoch() internal view returns (uint256 epoch) {
-        (,, uint48 e,,) = stash.session(player);
+        (,, uint48 e,,,) = stash.session(player);
         epoch = e;
     }
 

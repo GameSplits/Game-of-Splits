@@ -11,15 +11,15 @@ import {SafeCheck} from "./Deploy.s.sol";
 import {MainnetAddrs} from "./Mainnet.s.sol";
 
 /// @notice Deploy Stash on Robinhood Chain mainnet (chain id 4663) only. Stash has no owner. The Safe is the fee wallet
-///         and the cap raiser. The booths come from deployments/4663.json if present, else from env FAIR_CORE,
-///         LAST_ARROW and SHERIFFS_SEAT. Dry-run without `--broadcast`.
+///         and the cap raiser, which also sets the shot fee. The booths come from deployments/4663.json if present,
+///         else from env FAIR_CORE, LAST_ARROW and SHERIFFS_SEAT. Dry-run without `--broadcast`.
 ///   forge script script/DeployStashMainnet.s.sol:DeployStashMainnet --rpc-url robinhood
 contract DeployStashMainnet is SafeCheck, MainnetAddrs {
     using stdJson for string;
 
     string internal constant DEPLOYMENT_FILE = "deployments/4663.json";
 
-    uint256 public constant SHOT_FEE = 0.05e6;
+    uint256 public constant SHOT_FEE = 0.015e6;
     uint256 public constant WITHDRAW_FEE = 1e6;
     address public constant SAFE = 0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a;
 

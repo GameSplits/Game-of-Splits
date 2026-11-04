@@ -59,7 +59,7 @@ contract DeployStashMainnetForkTest is Test {
         assertEq(address(stash.usdg()), USDG);
         assertEq(stash.feeWallet(), SAFE);
         assertEq(stash.capRaiser(), SAFE);
-        assertEq(stash.shotFee(), 0.05e6);
+        assertEq(stash.shotFee(), 15000);
         assertEq(stash.withdrawFee(), 1e6);
         assertEq(stash.cap(), 50_000e6);
         assertEq(stash.totalHeld(), 0);

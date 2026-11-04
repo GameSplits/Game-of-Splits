@@ -79,7 +79,7 @@ contract StashGamesTest is Base {
         assertEq(la.roundState(1).lastShooter, p1);
         assertEq(la.countOf(1, p1), 1);
         assertEq(la.countOf(1, address(stash)), 0);
-        (,,,, uint256 spent) = stash.session(p1);
+        (,,,, uint256 spent,) = stash.session(p1);
         assertEq(spent, price + stash.shotFee());
     }
 
@@ -92,7 +92,7 @@ contract StashGamesTest is Base {
         stash.shoot(price + 1e6, roundId);
         assertEq(stash.balance(p1), before - price);
         assertEq(tokenFee(), 0);
-        (,,,, uint256 spent) = stash.session(p1);
+        (,,,, uint256 spent,) = stash.session(p1);
         assertEq(spent, 0);
         assertEq(usdg.allowance(address(stash), address(core)), 0);
     }
@@ -148,7 +148,7 @@ contract StashGamesTest is Base {
         stash.authorizeKey(p1Key, type(uint128).max, block.timestamp + 1 days);
         vm.stopPrank();
         Stash.Shoot memory noPass = _shoot(bare, 5e6);
-        (,, uint48 epoch,,) = stash.session(bare);
+        (,, uint48 epoch,,,) = stash.session(bare);
         noPass.epoch = epoch;
         noPass.nonce = 0;
         bytes memory noPassSig = _sig(p1KeyPk, stash.hashShoot(noPass));
@@ -323,7 +323,7 @@ contract StashGamesTest is Base {
     }
 
     function _shoot(address who, uint256 maxPrice) internal view returns (Stash.Shoot memory order) {
-        (,, uint48 epoch,,) = stash.session(who);
+        (,, uint48 epoch,,,) = stash.session(who);
         order = Stash.Shoot({
             owner: who,
             maxPrice: maxPrice,
@@ -335,7 +335,7 @@ contract StashGamesTest is Base {
     }
 
     function _take(address who, uint8 presetId, uint8 color, uint256 maxPrice) internal view returns (Stash.Take memory order) {
-        (,, uint48 epoch,,) = stash.session(who);
+        (,, uint48 epoch,,,) = stash.session(who);
         order = Stash.Take({
             owner: who,
             maxPrice: maxPrice,

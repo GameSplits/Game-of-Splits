@@ -7,6 +7,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @notice The Last Arrow calls Stash uses. `shoot` pulls USDG from the payer and credits `player`.
 interface ILastArrow {
@@ -26,11 +27,12 @@ interface ISheriffsSeat {
 /// @notice A player's USDG balance for one-click shots. The main wallet deposits and withdraws. A session key
 ///         may only shoot Last Arrow or take the Sheriff's Seat, up to a spend limit, until it expires or is revoked.
 ///         The signed max price is a ceiling. The contract pays the quoted game price, never more, and leaves the
-///         unused room in the owner's balance. Relayed shots pay a fixed shot fee. Every withdrawal, direct or
-///         relayed, pays the fixed withdrawal fee, and a balance at or below that fee cannot be withdrawn. A direct
-///         shot from the main wallet pays no shot fee.
+///         unused room in the owner's balance. Relayed shots pay the shot fee, never more than the fee when their key
+///         was authorized. Every withdrawal, direct or relayed, pays the fixed withdrawal fee, and a balance at or
+///         below that fee cannot be withdrawn. A direct shot from the main wallet pays no shot fee.
 /// @dev Built on OpenZeppelin SafeERC20, ReentrancyGuard, EIP712, SignatureChecker (ECDSA and ERC-1271) and Nonces.
-///      No owner, no pause, no upgrade. `capRaiser` can only raise the launch deposit cap, or renounce.
+///      No owner, no pause, no upgrade. `capRaiser` can only raise the launch deposit cap, set the shot fee up to
+///      `MAX_SHOT_FEE`, or renounce.
 contract Stash is ReentrancyGuard, EIP712, Nonces {
     using SafeERC20 for IERC20;
 
@@ -64,6 +66,8 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         uint48 epoch;
         uint256 limit;
         uint256 spent;
+        /// @dev The shot fee when the key was authorized, the most this session's relayed plays can pay.
+        uint256 feeCap;
     }
 
     struct Shoot {
@@ -119,7 +123,6 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
     ILastArrow public immutable arrow;
     ISheriffsSeat public immutable seat;
     address public immutable feeWallet;
-    uint256 public immutable shotFee;
     uint256 public immutable withdrawFee;
 
     address public capRaiser;
@@ -128,6 +131,7 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
     mapping(address owner => uint256) internal _balances;
     mapping(address owner => Session) public session;
     string[] internal _presets;
+    uint256 public shotFee;
 
     event Deposited(address indexed owner, uint256 amount);
     event Withdrawn(address indexed owner, uint256 amount, uint256 fee);
@@ -137,6 +141,7 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
     event Played(address indexed owner, address indexed key, address indexed game, uint256 price, uint256 fee);
     event CapRaised(uint256 newCap);
     event CapRaiserRenounced(address indexed previous);
+    event ShotFeeSet(uint256 oldFee, uint256 newFee);
 
     error ZeroAddress();
     error FeeAboveMax();
@@ -322,16 +327,16 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
     /// @notice Relayed shot. The active session key signs. A fee is charged only if the shot lands.
     function shoot(Shoot calldata order, bytes calldata signature) external nonReentrant {
         address key = _consumeKey(order.owner, order.epoch, order.deadline, _shootStruct(order), order.nonce, signature);
-        _play(order.owner, key, order.maxPrice, shotFee, true, true, order.expectedRound, 0, 0);
+        _play(order.owner, key, order.maxPrice, _sessionFee(order.owner), true, true, order.expectedRound, 0, 0);
     }
 
     /// @notice Relayed seat take. The key signs a preset id, not free text.
     function take(Take calldata order, bytes calldata signature) external nonReentrant {
         address key = _consumeKey(order.owner, order.epoch, order.deadline, _takeStruct(order), order.nonce, signature);
-        _play(order.owner, key, order.maxPrice, shotFee, true, false, 0, order.presetId, order.color);
+        _play(order.owner, key, order.maxPrice, _sessionFee(order.owner), true, false, 0, order.presetId, order.color);
     }
 
-    // ================================================================== cap
+    // ================================================================== cap and shot fee
 
     /// @notice Raise the deposit cap. `type(uint256).max` removes it. The cap cannot fall.
     function raiseCap(uint256 newCap) external {
@@ -341,6 +346,16 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         emit CapRaised(newCap);
     }
 
+    /// @notice Set the shot fee, at most `MAX_SHOT_FEE`. A lower fee applies to every session at once. A higher fee
+    ///         applies only to sessions authorized after this call. Renouncing the cap raiser freezes the fee.
+    function setShotFee(uint256 newFee) external {
+        if (msg.sender != capRaiser) revert NotCapRaiser();
+        if (newFee > MAX_SHOT_FEE) revert FeeAboveMax();
+        emit ShotFeeSet(shotFee, newFee);
+        shotFee = newFee;
+    }
+
+    /// @notice Give up the cap raiser role for good. This also freezes the shot fee.
     function renounceCapRaiser() external {
         if (msg.sender != capRaiser) revert NotCapRaiser();
         emit CapRaiserRenounced(msg.sender);
@@ -361,6 +376,7 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         s.epoch = epoch;
         s.limit = limit;
         s.spent = 0;
+        s.feeCap = shotFee;
         emit KeyAuthorized(owner, key, limit, uint48(expiry), epoch);
     }
 
@@ -382,8 +398,14 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         s.expiry = 0;
         s.limit = 0;
         s.spent = 0;
+        s.feeCap = 0;
         s.epoch = epoch;
         emit KeyRevoked(owner, key, epoch);
+    }
+
+    /// @dev The fee a relayed play pays. A fee raised after the key was authorized does not reach this session.
+    function _sessionFee(address owner) internal view returns (uint256) {
+        return Math.min(shotFee, session[owner].feeCap);
     }
 
     /// @dev A balance at or below the fee cannot be withdrawn and stays in the Stash. Above that, the amount must be
