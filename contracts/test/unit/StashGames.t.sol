@@ -150,7 +150,7 @@ contract StashGamesTest is Base {
         Stash.Shoot memory noPass = _shoot(bare, 5e6);
         (,, uint48 epoch,,,) = stash.session(bare);
         noPass.epoch = epoch;
-        noPass.nonce = 0;
+        noPass.nonce = stash.nonces(bare);
         bytes memory noPassSig = _sig(p1KeyPk, stash.hashShoot(noPass));
         vm.expectRevert(LastArrow.NoPass.selector);
         stash.shoot(noPass, noPassSig);
@@ -382,6 +382,6 @@ contract StashGamesTest is Base {
     }
 
     function tokenFee() internal view returns (uint256) {
-        return usdg.balanceOf(feeTo);
+        return usdg.balanceOf(feeTo) + stash.feesAccrued();
     }
 }

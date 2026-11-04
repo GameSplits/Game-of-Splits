@@ -127,12 +127,16 @@ contract DeployStashMainnetForkTest is Test {
         stash.deposit(10e6);
         stash.withdraw(9e6);
         assertEq(token.balanceOf(player), 8e6);
-        assertEq(token.balanceOf(SAFE), fees + 1e6);
+        assertEq(token.balanceOf(SAFE), fees, "fee accrues in the stash");
+        assertEq(stash.feesAccrued(), 1e6);
         assertEq(stash.balance(player), 1e6);
         vm.expectRevert(Stash.BalanceAtOrBelowFee.selector);
         stash.withdraw(1e6);
         vm.stopPrank();
         assertEq(stash.balance(player), 1e6);
+        assertEq(stash.feesAccrued(), 1e6);
+        stash.flushFees();
+        assertEq(stash.feesAccrued(), 0);
         assertEq(token.balanceOf(SAFE), fees + 1e6);
     }
 }

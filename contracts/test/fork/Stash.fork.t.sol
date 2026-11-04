@@ -48,7 +48,8 @@ contract StashForkTest is Test {
         vm.stopPrank();
         assertEq(stash.balance(player), 15e6);
         assertEq(usdg.balanceOf(player), wallet + 9e6);
-        assertEq(usdg.balanceOf(feeTo), 1e6);
+        assertEq(stash.feesAccrued(), 1e6);
+        assertEq(usdg.balanceOf(feeTo), 0);
 
         vm.startPrank(player);
         stash.withdraw(14e6);
@@ -57,6 +58,9 @@ contract StashForkTest is Test {
         stash.withdraw(1e6);
         vm.stopPrank();
         assertEq(stash.balance(player), 1e6);
+        assertEq(stash.feesAccrued(), 2e6);
+        stash.flushFees();
+        assertEq(stash.feesAccrued(), 0);
         assertEq(usdg.balanceOf(feeTo), 2e6);
     }
 
@@ -111,13 +115,13 @@ contract StashForkTest is Test {
         stash.deposit(claimable);
         assertEq(stash.balance(player), stashBal + claimable);
 
-        uint256 fees = usdg.balanceOf(stash.feeWallet());
+        uint256 fees = usdg.balanceOf(stash.feeWallet()) + stash.feesAccrued();
         uint256 all = stash.balance(player);
         vm.prank(player);
         stash.withdraw(all);
         assertEq(stash.balance(player), 0);
         assertEq(usdg.balanceOf(player), wallet + stashBal + claimable - 1e6);
-        assertEq(usdg.balanceOf(stash.feeWallet()), fees + 1e6, "direct withdraw pays the fee");
+        assertEq(usdg.balanceOf(stash.feeWallet()) + stash.feesAccrued(), fees + 1e6, "direct withdraw pays the fee");
     }
 
     function _deploy()

@@ -34,6 +34,10 @@ contract StashHandler is Test {
     uint256 public shots;
     uint256 public takes;
     uint256 public smallBalanceReverts;
+    uint256 public flushed;
+    uint256 public donated;
+    uint256 public heldTried;
+    uint256 public flushes;
 
     bool public badWithdraw;
     bool public capDecreased;
@@ -49,6 +53,8 @@ contract StashHandler is Test {
     bool public directSpent;
     bool public badFeeSet;
     bool public wrongShotFee;
+    bool public flushWrong;
+    bool public heldWorked;
 
     Stash.Shoot internal lastShoot;
     bytes internal lastSig;
@@ -105,7 +111,7 @@ contract StashHandler is Test {
         uint256 fee = stash.withdrawFee();
         amt = _withdrawAmount(amt, bal, fee, 1e6);
         uint256 wallet = usdg.balanceOf(a);
-        uint256 fees = usdg.balanceOf(feeWallet);
+        uint256 fees = _fees();
         vm.prank(a);
         try stash.withdraw(amt) {
             _noteWithdraw(a, amt, bal, fee, wallet, fees);
@@ -121,7 +127,7 @@ contract StashHandler is Test {
         uint256 fee = stash.withdrawFee();
         amt = _withdrawAmount(amt, bal, fee, 1);
         uint256 wallet = usdg.balanceOf(a);
-        uint256 fees = usdg.balanceOf(feeWallet);
+        uint256 fees = _fees();
         Stash.Withdrawal memory order = Stash.Withdrawal(a, amt, stash.nonces(a), block.timestamp + 1 hours);
         try stash.withdraw(order, _sign(accountPks[who % 3], stash.hashWithdraw(order))) {
             _noteWithdraw(a, amt, bal, fee, wallet, fees);
@@ -144,7 +150,7 @@ contract StashHandler is Test {
         feesPaid += fee;
         if (stash.balance(a) != bal - amt) revertMoved = true;
         if (usdg.balanceOf(a) != wallet + amt - fee) revertMoved = true;
-        if (usdg.balanceOf(feeWallet) != fees + fee) revertMoved = true;
+        if (_fees() != fees + fee) revertMoved = true;
     }
 
     function _noteWithdrawRevert(address a, uint256 amt, uint256 bal, uint256 fee, uint256 wallet, uint256 fees)
@@ -152,7 +158,7 @@ contract StashHandler is Test {
     {
         if (bal > fee && amt > fee && amt <= bal) badWithdraw = true;
         if (bal <= fee) smallBalanceReverts += 1;
-        if (stash.balance(a) != bal || usdg.balanceOf(a) != wallet || usdg.balanceOf(feeWallet) != fees) {
+        if (stash.balance(a) != bal || usdg.balanceOf(a) != wallet || _fees() != fees) {
             revertMoved = true;
         }
     }
@@ -306,7 +312,73 @@ contract StashHandler is Test {
     }
 
     function donate(uint256 amt) external {
-        usdg.mint(address(stash), bound(amt, 1, 5e6));
+        amt = bound(amt, 1, 5e6);
+        usdg.mint(address(stash), amt);
+        donated += amt;
+    }
+
+    /// flushFees moves exactly the accrued fees to the fee wallet and nothing else
+    function flush() external {
+        uint256 acc = stash.feesAccrued();
+        uint256 wallet = usdg.balanceOf(feeWallet);
+        uint256 tokens = usdg.balanceOf(address(stash));
+        uint256 held = stash.totalHeld();
+        try stash.flushFees() {
+            flushed += acc;
+            flushes += 1;
+            if (
+                acc == 0 || usdg.balanceOf(feeWallet) != wallet + acc || usdg.balanceOf(address(stash)) != tokens - acc
+                    || stash.feesAccrued() != 0 || stash.totalHeld() != held
+            ) flushWrong = true;
+        } catch {
+            if (acc != 0) flushWrong = true;
+        }
+    }
+
+    /// Signs one of every order at the current nonce and holds them. The owner then acts directly (revoke, limit,
+    /// authorize or cancelNonce). If that action lands, no held order may land afterwards.
+    function heldOrders(uint256 who, uint256 action) external {
+        uint256 i = who % 3;
+        address a = actors[i];
+        uint256 n = stash.nonces(a);
+        uint256 dl = block.timestamp + 1 hours;
+        Stash.Authorize memory au = Stash.Authorize(a, keys[i], type(uint128).max, block.timestamp + 1 hours, n, dl);
+        Stash.LimitChange memory li = Stash.LimitChange(a, type(uint128).max, n, dl);
+        Stash.Revoke memory rv = Stash.Revoke(a, n, dl);
+        Stash.Withdrawal memory wd = Stash.Withdrawal(a, 2e6, n, dl);
+        bytes memory auSig = _sign(accountPks[i], stash.hashAuthorize(au));
+        bytes memory liSig = _sign(accountPks[i], stash.hashSetLimit(li));
+        bytes memory rvSig = _sign(accountPks[i], stash.hashRevoke(rv));
+        bytes memory wdSig = _sign(accountPks[i], stash.hashWithdraw(wd));
+
+        action = action % 4;
+        vm.prank(a);
+        if (action == 0) {
+            try stash.revokeKey() {} catch { return; }
+        } else if (action == 1) {
+            try stash.setLimit(300e6) {} catch { return; }
+        } else if (action == 2) {
+            try stash.authorizeKey(keys[i], 200e6, block.timestamp + 2 hours) {} catch { return; }
+        } else {
+            stash.cancelNonce();
+        }
+        (,, uint48 epochNow,,,) = stash.session(a);
+        Stash.Shoot memory sh = Stash.Shoot(a, type(uint128).max, arrow.nextShotRound(), n, dl, epochNow);
+        bytes memory shSig = _sign(keyPks[i], stash.hashShoot(sh));
+        heldTried += 1;
+        if (stash.nonces(a) != n + 1) heldWorked = true;
+        try stash.authorizeKey(au, auSig) { heldWorked = true; } catch {}
+        try stash.setLimit(li, liSig) { heldWorked = true; } catch {}
+        try stash.revokeKey(rv, rvSig) { heldWorked = true; } catch {}
+        try stash.withdraw(wd, wdSig) { heldWorked = true; } catch {}
+        arb.set(arb.n() + 1);
+        try stash.shoot(sh, shSig) { heldWorked = true; } catch {}
+        _cap();
+    }
+
+    /// Fees taken so far: flushed to the fee wallet or still accrued in the Stash.
+    function _fees() internal view returns (uint256) {
+        return usdg.balanceOf(feeWallet) + stash.feesAccrued();
     }
 
     function actorCount() external view returns (uint256) {
@@ -335,7 +407,7 @@ contract StashHandler is Test {
         (,,,, spentBefore,) = stash.session(a);
         bool dead = _dead(a);
         uint256 before = stash.balance(a);
-        uint256 fees = usdg.balanceOf(feeWallet);
+        uint256 fees = _fees();
         uint256 coreBefore = usdg.balanceOf(address(core));
         uint256 stashBefore = usdg.balanceOf(address(stash));
         uint256 wallet = usdg.balanceOf(a);
@@ -377,7 +449,7 @@ contract StashHandler is Test {
         uint256 spentBefore;
         (,,,, spentBefore,) = stash.session(a);
         uint256 before = stash.balance(a);
-        uint256 fees = usdg.balanceOf(feeWallet);
+        uint256 fees = _fees();
         uint256 coreBefore = usdg.balanceOf(address(core));
         uint256 stashBefore = usdg.balanceOf(address(stash));
         uint256 wallet = usdg.balanceOf(a);
@@ -436,7 +508,7 @@ contract StashHandler is Test {
         bool asKey
     ) internal {
         uint256 drop = before - stash.balance(a);
-        uint256 feeDelta = usdg.balanceOf(feeWallet) - fees;
+        uint256 feeDelta = _fees() - fees;
         uint256 coreDelta = usdg.balanceOf(address(core)) - coreBefore;
         if (drop != feeDelta + coreDelta) revertMoved = true;
         if (usdg.balanceOf(a) != wallet) keyWithdrew = true;
@@ -456,7 +528,7 @@ contract StashHandler is Test {
         internal
     {
         if (
-            stash.balance(a) != before || usdg.balanceOf(feeWallet) != fees || usdg.balanceOf(address(core)) != coreBefore
+            stash.balance(a) != before || _fees() != fees || usdg.balanceOf(address(core)) != coreBefore
                 || usdg.balanceOf(address(stash)) != stashBefore || usdg.balanceOf(a) != wallet
         ) revertMoved = true;
     }
@@ -529,7 +601,7 @@ contract StashInvariantTest is Base {
         h = new StashHandler(stash, core, la, seat, usdg, arb, owner, raiser, actors, accountPks, keys, keyPks);
         h.seed();
 
-        bytes4[] memory sels = new bytes4[](19);
+        bytes4[] memory sels = new bytes4[](21);
         sels[0] = h.deposit.selector;
         sels[1] = h.withdraw.selector;
         sels[2] = h.withdrawRelay.selector;
@@ -549,6 +621,8 @@ contract StashInvariantTest is Base {
         sels[16] = h.renounce.selector;
         sels[17] = h.donate.selector;
         sels[18] = h.setShotFee.selector;
+        sels[19] = h.flush.selector;
+        sels[20] = h.heldOrders.selector;
         targetContract(address(h));
         targetSelector(FuzzSelector({addr: address(h), selectors: sels}));
     }
@@ -561,6 +635,17 @@ contract StashInvariantTest is Base {
         assertGt(h.shots(), 0, "shots land");
         assertGt(h.takes(), 0, "takes land");
         invariant_balancesPlusFees();
+        invariant_feesAccounting();
+        h.flush();
+        h.heldOrders(0, 0);
+        h.heldOrders(1, 1);
+        h.heldOrders(2, 2);
+        h.heldOrders(0, 3);
+        assertGt(h.flushes(), 0, "flush lands");
+        assertEq(h.heldTried(), 4, "every direct action landed");
+        assertFalse(h.heldWorked(), "held order landed after a direct action");
+        assertFalse(h.flushWrong(), "flush moved the wrong amount");
+        invariant_feesAccounting();
         h.replay();
         h.revokeThenShoot(0, 0);
         h.keyWithdraw(1, 1e6);
@@ -637,6 +722,19 @@ contract StashInvariantTest is Base {
             if (limit != type(uint128).max) assertLe(spent, limit);
             assertLe(feeCap, stash.MAX_SHOT_FEE(), "fee cap above max");
         }
+    }
+
+    /// Fees stay apart from balances. The Stash holds exactly balances plus accrued fees plus donations, the fee
+    /// wallet holds exactly what was flushed, and every fee taken is either accrued or flushed.
+    function invariant_feesAccounting() public view {
+        uint256 tokens = usdg.balanceOf(address(stash));
+        assertGe(tokens, stash.totalHeld() + stash.feesAccrued(), "Stash covers balances and fees");
+        assertEq(tokens, stash.totalHeld() + stash.feesAccrued() + h.donated(), "Stash conservation");
+        assertEq(stash.sweepable(), h.donated(), "only donations are sweepable");
+        assertEq(usdg.balanceOf(feeTo), h.flushed(), "fee wallet holds only flushed fees");
+        assertEq(stash.feesAccrued() + h.flushed(), h.feesPaid(), "fees accrued or flushed");
+        assertFalse(h.flushWrong(), "flush moved the wrong amount");
+        assertFalse(h.heldWorked(), "held order landed after a direct action");
     }
 
     function _lines() internal pure returns (string[] memory lines) {

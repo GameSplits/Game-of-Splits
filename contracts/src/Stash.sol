@@ -30,9 +30,16 @@ interface ISheriffsSeat {
 ///         unused room in the owner's balance. Relayed shots pay the shot fee, never more than the fee when their key
 ///         was authorized. Every withdrawal, direct or relayed, pays the fixed withdrawal fee, and a balance at or
 ///         below that fee cannot be withdrawn. A direct shot from the main wallet pays no shot fee.
+///         Fees are kept in the Stash as `feesAccrued` and leave only through `flushFees`, so a fee wallet that
+///         cannot receive USDG never blocks a withdrawal or a play.
+///         Every owner order (withdraw, authorize, limit, revoke) and every key order shares one nonce per owner.
+///         Direct `authorizeKey`, `setLimit` and `revokeKey` also use that nonce, and `cancelNonce` uses it with no
+///         other effect, so an order signed at the current nonce and never sent dies once one of these succeeds.
+///         Direct `withdraw`, `shoot` and `take` leave the nonce alone; use `cancelNonce` to void a held order.
 /// @dev Built on OpenZeppelin SafeERC20, ReentrancyGuard, EIP712, SignatureChecker (ECDSA and ERC-1271) and Nonces.
 ///      No owner, no pause, no upgrade. `capRaiser` can only raise the launch deposit cap, set the shot fee up to
 ///      `MAX_SHOT_FEE`, or renounce.
+///      Accounting invariant: `usdg.balanceOf(this) >= totalHeld + feesAccrued`.
 contract Stash is ReentrancyGuard, EIP712, Nonces {
     using SafeERC20 for IERC20;
 
@@ -128,6 +135,9 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
     address public capRaiser;
     uint256 public cap;
     uint256 public totalHeld;
+    /// @notice Fees taken from withdrawals and relayed plays, held here until `flushFees` sends them to `feeWallet`.
+    ///         Never part of `totalHeld` and never spendable by players.
+    uint256 public feesAccrued;
     mapping(address owner => uint256) internal _balances;
     mapping(address owner => Session) public session;
     string[] internal _presets;
@@ -142,6 +152,8 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
     event CapRaised(uint256 newCap);
     event CapRaiserRenounced(address indexed previous);
     event ShotFeeSet(uint256 oldFee, uint256 newFee);
+    event FeesFlushed(address indexed feeWallet, uint256 amount);
+    event NonceCancelled(address indexed owner, uint256 nonce);
 
     error ZeroAddress();
     error FeeAboveMax();
@@ -214,9 +226,9 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         return _balances[owner];
     }
 
-    /// @notice Tokens held above the sum of balances. Direct transfers land here and stay here.
+    /// @notice Tokens held above the sum of balances and the accrued fees. Direct transfers land here and stay here.
     function sweepable() external view returns (uint256) {
-        return usdg.balanceOf(address(this)) - totalHeld;
+        return usdg.balanceOf(address(this)) - totalHeld - feesAccrued;
     }
 
     function presetCount() external view returns (uint256) {
@@ -276,16 +288,29 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         _withdraw(msg.sender, amount, withdrawFee);
     }
 
+    /// @notice Start a new session for `key`. Uses the caller's nonce, so any signed order not yet sent is void.
     function authorizeKey(address key, uint256 limit, uint256 expiry) external nonReentrant {
+        _useNonce(msg.sender);
         _authorize(msg.sender, key, limit, expiry);
     }
 
+    /// @notice Change the session spend limit. Uses the caller's nonce, so any signed order not yet sent is void.
     function setLimit(uint256 newLimit) external nonReentrant {
+        _useNonce(msg.sender);
         _setLimit(msg.sender, newLimit);
     }
 
+    /// @notice End the session. Uses the caller's nonce, so a held order signed at the current nonce (an AuthorizeKey
+    ///         included) cannot bring a key back after this call.
     function revokeKey() external nonReentrant {
+        _useNonce(msg.sender);
         _revoke(msg.sender);
+    }
+
+    /// @notice Void the caller's signed orders that were never sent, owner and key orders alike, without changing
+    ///         the session or the balance. Orders are signed at the current nonce, so one call voids them all.
+    function cancelNonce() external {
+        emit NonceCancelled(msg.sender, _useNonce(msg.sender));
     }
 
     /// @notice Shoot as the caller. No shot fee. `maxPrice` is the most the game may charge.
@@ -334,6 +359,19 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
     function take(Take calldata order, bytes calldata signature) external nonReentrant {
         address key = _consumeKey(order.owner, order.epoch, order.deadline, _takeStruct(order), order.nonce, signature);
         _play(order.owner, key, order.maxPrice, _sessionFee(order.owner), true, false, 0, order.presetId, order.color);
+    }
+
+    // ================================================================== fees
+
+    /// @notice Send every accrued fee to `feeWallet`. Anyone may call. The recipient and the amount are fixed by the
+    ///         contract, so the caller only picks the time. If the fee wallet cannot receive, this reverts and the fees
+    ///         stay accrued, and player balances are not affected.
+    function flushFees() external nonReentrant {
+        uint256 amount = feesAccrued;
+        if (amount == 0) revert ZeroAmount();
+        feesAccrued = 0;
+        _pay(feeWallet, amount);
+        emit FeesFlushed(feeWallet, amount);
     }
 
     // ================================================================== cap and shot fee
@@ -409,7 +447,8 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
     }
 
     /// @dev A balance at or below the fee cannot be withdrawn and stays in the Stash. Above that, the amount must be
-    ///      above the fee. A withdrawal may leave a balance at or below the fee.
+    ///      above the fee. A withdrawal may leave a balance at or below the fee. Every withdrawal accrues the fee for
+    ///      `flushFees`. Direct and relayed paths share this check.
     function _withdraw(address owner, uint256 amount, uint256 fee) internal {
         uint256 bal = _balances[owner];
         if (bal <= fee) revert BalanceAtOrBelowFee();
@@ -418,13 +457,14 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         if (amount <= fee) revert AmountNotAboveFee();
         _balances[owner] = bal - amount;
         totalHeld -= amount;
+        if (fee != 0) feesAccrued += fee;
         _pay(owner, amount - fee);
-        if (fee != 0) _pay(feeWallet, fee);
         emit Withdrawn(owner, amount, fee);
     }
 
     /// @dev Debits the quoted price plus the fee, then approves FairCore for exactly `maxPrice` and calls the game
-    ///      with `player` set to the owner. The approval is cleared to 0. A revert in the game rolls the debit back.
+    ///      with `player` set to the owner. The approval is cleared to 0. The fee stays here as `feesAccrued`.
+    ///      A revert in the game rolls the debit back.
     function _play(
         address owner,
         address key,
@@ -467,7 +507,7 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         uint256 afterBal = usdg.balanceOf(address(this));
         if (charged != price || afterBal > beforeBal || beforeBal - afterBal != price) revert TransferMismatch();
         usdg.forceApprove(core, 0);
-        if (fee != 0) _pay(feeWallet, fee);
+        if (fee != 0) feesAccrued += fee;
         emit Played(owner, key, isArrow ? address(arrow) : address(seat), price, fee);
     }
 
