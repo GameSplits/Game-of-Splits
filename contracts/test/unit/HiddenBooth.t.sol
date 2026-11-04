@@ -259,11 +259,12 @@ contract HiddenBoothTest is Test {
         scanH.verifyFairCoreSetup(address(core), routeB);
     }
 
-    function test_verify_mainnetPin_failsClosed() public {
+    function test_verify_mainnetPin_onlyThePinnedSafe() public {
         vm.chainId(4663);
         (address mainnet,) = scanH.pins();
-        assertEq(mainnet, address(0));
-        vm.expectRevert(bytes("OWNER_SAFE: no Safe pinned in script/Deploy.s.sol yet"));
+        assertEq(mainnet, 0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a);
+        scanH.requirePinnedOwner(mainnet);
+        vm.expectRevert(bytes("OWNER_SAFE: not the pinned Safe address"));
         scanH.requirePinnedOwner(safe_);
     }
 
