@@ -190,11 +190,22 @@ contract SafeCheckForkTest is Test {
         h.pinned(ours, address(0));
     }
 
-    /// Mainnet stays unpinned, so a mainnet deploy still cannot run. Testnet (46630) is the confirmed Safe
-    /// on 29 Oct 2026. The next pin (mainnet) fails this test until it is updated in that same commit.
-    function test_shippedWithNoPin() public view {
+    /// Mainnet is the confirmed Safe on 4 Nov 2026, testnet (46630) the confirmed Safe on 29 Oct 2026.
+    function test_shippedPins() public view {
         (address m, address t) = h.shippedPins();
-        assertEq(m, address(0));
+        assertEq(m, 0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a);
         assertEq(t, 0xDF3d35A99af7A1A3fdE128b8FDFa0D60aE9A1F00);
+    }
+
+    /// The pinned mainnet Safe passes the same pin and Safe checks DeployMainnet runs.
+    function test_pinnedMainnetSafePasses() public view {
+        if (block.chainid != 4663) return;
+        (address m,) = h.shippedPins();
+        address[] memory owners = new address[](3);
+        owners[0] = 0xCA652b365Fa1052d43297907B1eAe5676182Eb5c;
+        owners[1] = 0x8AAb7f969f7e6AE1098e4158EA4547F07A3204e2;
+        owners[2] = 0x36E54F5366b7d01529BA1abF233314184B876D89;
+        h.pinned(m, m);
+        h.check(m, owners);
     }
 }
