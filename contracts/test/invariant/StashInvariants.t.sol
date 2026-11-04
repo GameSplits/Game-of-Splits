@@ -33,7 +33,9 @@ contract StashHandler is Test {
     uint256 public capSeen;
     uint256 public shots;
     uint256 public takes;
+    uint256 public smallBalanceReverts;
 
+    bool public badWithdraw;
     bool public capDecreased;
     bool public capLowered;
     bool public keyWithdrew;
@@ -98,20 +100,15 @@ contract StashHandler is Test {
     function withdraw(uint256 who, uint256 amt) external {
         address a = actors[who % 3];
         uint256 bal = stash.balance(a);
-        amt = amt % 5 == 0 ? bal : bound(amt, 0, bal + 1e6);
+        uint256 fee = stash.withdrawFee();
+        amt = _withdrawAmount(amt, bal, fee, 1e6);
         uint256 wallet = usdg.balanceOf(a);
         uint256 fees = usdg.balanceOf(feeWallet);
         vm.prank(a);
-        uint256 fee = stash.withdrawFee();
         try stash.withdraw(amt) {
-            uint256 taken = amt <= fee ? amt : fee;
-            if (amt <= fee && amt != bal) revertMoved = true;
-            paidOut += amt - taken;
-            feesPaid += taken;
-            if (usdg.balanceOf(a) != wallet + amt - taken) revertMoved = true;
-            if (usdg.balanceOf(feeWallet) != fees + taken) revertMoved = true;
+            _noteWithdraw(a, amt, bal, fee, wallet, fees);
         } catch {
-            if (stash.balance(a) != bal) revertMoved = true;
+            _noteWithdrawRevert(a, amt, bal, fee, wallet, fees);
         }
         _cap();
     }
@@ -120,21 +117,42 @@ contract StashHandler is Test {
         address a = actors[who % 3];
         uint256 bal = stash.balance(a);
         uint256 fee = stash.withdrawFee();
-        amt = amt % 5 == 0 ? bal : bound(amt, 0, bal + 1);
+        amt = _withdrawAmount(amt, bal, fee, 1);
         uint256 wallet = usdg.balanceOf(a);
         uint256 fees = usdg.balanceOf(feeWallet);
         Stash.Withdrawal memory order = Stash.Withdrawal(a, amt, stash.nonces(a), block.timestamp + 1 hours);
         try stash.withdraw(order, _sign(accountPks[who % 3], stash.hashWithdraw(order))) {
-            uint256 taken = amt <= fee ? amt : fee;
-            if (amt <= fee && amt != bal) revertMoved = true;
-            paidOut += amt - taken;
-            feesPaid += taken;
-            if (usdg.balanceOf(a) != wallet + amt - taken) revertMoved = true;
-            if (usdg.balanceOf(feeWallet) != fees + taken) revertMoved = true;
+            _noteWithdraw(a, amt, bal, fee, wallet, fees);
         } catch {
-            if (stash.balance(a) != bal || usdg.balanceOf(feeWallet) != fees) revertMoved = true;
+            _noteWithdrawRevert(a, amt, bal, fee, wallet, fees);
         }
         _cap();
+    }
+
+    /// Mixes whole withdrawals, withdrawals that leave a balance at or below the fee, and any other amount.
+    function _withdrawAmount(uint256 amt, uint256 bal, uint256 fee, uint256 over) internal pure returns (uint256) {
+        if (amt % 5 == 0) return bal;
+        if (amt % 5 == 1 && bal > fee) return bal - (amt % fee + 1);
+        return bound(amt, 0, bal + over);
+    }
+
+    function _noteWithdraw(address a, uint256 amt, uint256 bal, uint256 fee, uint256 wallet, uint256 fees) internal {
+        if (bal <= fee || amt <= fee || amt > bal) badWithdraw = true;
+        paidOut += amt - fee;
+        feesPaid += fee;
+        if (stash.balance(a) != bal - amt) revertMoved = true;
+        if (usdg.balanceOf(a) != wallet + amt - fee) revertMoved = true;
+        if (usdg.balanceOf(feeWallet) != fees + fee) revertMoved = true;
+    }
+
+    function _noteWithdrawRevert(address a, uint256 amt, uint256 bal, uint256 fee, uint256 wallet, uint256 fees)
+        internal
+    {
+        if (bal > fee && amt > fee && amt <= bal) badWithdraw = true;
+        if (bal <= fee) smallBalanceReverts += 1;
+        if (stash.balance(a) != bal || usdg.balanceOf(a) != wallet || usdg.balanceOf(feeWallet) != fees) {
+            revertMoved = true;
+        }
     }
 
     function authorize(uint256 who, uint256 limit, uint256 life) external {
@@ -531,6 +549,22 @@ contract StashInvariantTest is Base {
         assertFalse(h.overLimit());
     }
 
+    function test_handlerWithdraws() public {
+        // An amount divisible by 5 picks the whole balance. Empty it, then top up to exactly the fee.
+        h.withdraw(0, 0);
+        assertEq(stash.balance(h.actors(0)), 0);
+        h.withdraw(0, 5);
+        h.withdrawRelay(0, 5);
+        h.deposit(0, 1e6);
+        assertEq(stash.balance(h.actors(0)), 1e6);
+        h.withdraw(0, 5);
+        h.withdrawRelay(0, 5);
+        assertEq(h.smallBalanceReverts(), 4, "balance at or below the fee reverts");
+        assertEq(stash.balance(h.actors(0)), 1e6);
+        assertFalse(h.badWithdraw());
+        invariant_balancesPlusFees();
+    }
+
     /// sum(balance) == totalHeld <= USDG held. Deposits equal balances plus payouts, fees and game pulls.
     function invariant_balancesPlusFees() public view {
         uint256 sum;
@@ -540,6 +574,7 @@ contract StashInvariantTest is Base {
         assertEq(sum, stash.totalHeld(), "sum of balances");
         assertLe(stash.totalHeld(), usdg.balanceOf(address(stash)), "held covers balances");
         assertEq(h.deposited(), sum + h.paidOut() + h.feesPaid() + h.paidToCore(), "balances plus fees");
+        assertFalse(h.badWithdraw(), "withdraw broke the fee rules");
         assertFalse(h.capDecreased(), "cap fell");
         assertFalse(h.capLowered(), "lower cap was accepted");
         assertFalse(h.keyWithdrew(), "key moved funds");

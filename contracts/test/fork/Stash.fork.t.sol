@@ -49,6 +49,15 @@ contract StashForkTest is Test {
         assertEq(stash.balance(player), 15e6);
         assertEq(usdg.balanceOf(player), wallet + 9e6);
         assertEq(usdg.balanceOf(feeTo), 1e6);
+
+        vm.startPrank(player);
+        stash.withdraw(14e6);
+        assertEq(stash.balance(player), 1e6);
+        vm.expectRevert(Stash.BalanceAtOrBelowFee.selector);
+        stash.withdraw(1e6);
+        vm.stopPrank();
+        assertEq(stash.balance(player), 1e6);
+        assertEq(usdg.balanceOf(feeTo), 2e6);
     }
 
     function test_claimBatch_onFork() public {

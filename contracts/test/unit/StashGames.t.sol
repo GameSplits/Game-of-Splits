@@ -249,7 +249,7 @@ contract StashGamesTest is Base {
     function test_keyCannotWithdraw_replayFails_revokeIsInstant() public {
         uint256 bal = stash.balance(p1);
         vm.prank(p1Key);
-        vm.expectRevert(Stash.InsufficientBalance.selector);
+        vm.expectRevert(Stash.BalanceAtOrBelowFee.selector);
         stash.withdraw(2e6);
         Stash.Withdrawal memory w = Stash.Withdrawal(p1, 2e6, stash.nonces(p1), block.timestamp + 1 hours);
         bytes memory wsig = _sig(p1KeyPk, stash.hashWithdraw(w));

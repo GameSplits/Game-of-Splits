@@ -27,7 +27,8 @@ interface ISheriffsSeat {
 ///         may only shoot Last Arrow or take the Sheriff's Seat, up to a spend limit, until it expires or is revoked.
 ///         The signed max price is a ceiling. The contract pays the quoted game price, never more, and leaves the
 ///         unused room in the owner's balance. Relayed shots pay a fixed shot fee. Every withdrawal, direct or
-///         relayed, pays the fixed withdrawal fee. A direct shot from the main wallet pays no shot fee.
+///         relayed, pays the fixed withdrawal fee, and a balance at or below that fee cannot be withdrawn. A direct
+///         shot from the main wallet pays no shot fee.
 /// @dev Built on OpenZeppelin SafeERC20, ReentrancyGuard, EIP712, SignatureChecker (ECDSA and ERC-1271) and Nonces.
 ///      No owner, no pause, no upgrade. `capRaiser` can only raise the launch deposit cap, or renounce.
 contract Stash is ReentrancyGuard, EIP712, Nonces {
@@ -146,6 +147,7 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
     error TransferMismatch();
     error InsufficientBalance();
     error AmountNotAboveFee();
+    error BalanceAtOrBelowFee();
     error DeadlineExpired();
     error BadSignature();
     error KeyMissing();
@@ -263,8 +265,8 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         emit Deposited(msg.sender, amount);
     }
 
-    /// @notice Send `amount` minus the withdrawal fee to the caller. The main wallet pays its own gas. A whole balance
-    ///         at or below the fee is taken as the fee, so the payout is zero.
+    /// @notice Send `amount` minus the withdrawal fee to the caller. The main wallet pays its own gas. A balance at or
+    ///         below the fee cannot be withdrawn.
     function withdraw(uint256 amount) external nonReentrant {
         _withdraw(msg.sender, amount, withdrawFee);
     }
@@ -293,8 +295,8 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
 
     // ================================================================== owner, relayed
 
-    /// @notice Relayed withdrawal. The owner signs. The payout is `amount` minus the withdrawal fee. A whole balance at
-    ///         or below the fee is taken as the fee, so the payout is zero.
+    /// @notice Relayed withdrawal. The owner signs. The payout is `amount` minus the withdrawal fee. A balance at or
+    ///         below the fee cannot be withdrawn.
     function withdraw(Withdrawal calldata order, bytes calldata signature) external nonReentrant {
         _consumeOwner(order.owner, _withdrawStruct(order), order.nonce, order.deadline, signature);
         _withdraw(order.owner, order.amount, withdrawFee);
@@ -384,20 +386,17 @@ contract Stash is ReentrancyGuard, EIP712, Nonces {
         emit KeyRevoked(owner, key, epoch);
     }
 
-    /// @dev A balance at or below the fee can only be withdrawn whole. All of it goes to the fee wallet and nothing
-    ///      is paid out, so any balance can be emptied to zero. A partial amount at or below the fee still reverts.
+    /// @dev A balance at or below the fee cannot be withdrawn and stays in the Stash. Above that, the amount must be
+    ///      above the fee. A withdrawal may leave a balance at or below the fee.
     function _withdraw(address owner, uint256 amount, uint256 fee) internal {
-        if (amount == 0) revert ZeroAmount();
         uint256 bal = _balances[owner];
+        if (bal <= fee) revert BalanceAtOrBelowFee();
+        if (amount == 0) revert ZeroAmount();
         if (bal < amount) revert InsufficientBalance();
-        if (amount <= fee) {
-            if (amount != bal) revert AmountNotAboveFee();
-            fee = amount;
-        }
+        if (amount <= fee) revert AmountNotAboveFee();
         _balances[owner] = bal - amount;
         totalHeld -= amount;
-        uint256 payout = amount - fee;
-        if (payout != 0) _pay(owner, payout);
+        _pay(owner, amount - fee);
         if (fee != 0) _pay(feeWallet, fee);
         emit Withdrawn(owner, amount, fee);
     }

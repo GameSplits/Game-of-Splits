@@ -7,6 +7,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
 import {Stash} from "../../src/Stash.sol";
 import {DeployStash} from "../../script/DeployStash.s.sol";
+import {DeployStashMainnet} from "../../script/DeployStashMainnet.s.sol";
 import {MockToken, FeeToken} from "../mocks/Mocks.sol";
 
 contract Puller {
@@ -274,45 +275,114 @@ contract StashTest is Test {
         assertEq(stash.balance(player), left);
     }
 
-    function test_directWithdraw_smallBalance_sweptAsFee() public {
-        uint256 fee = stash.withdrawFee();
-        _leaveSmallBalance(fee / 2);
-        uint256 wallet = token.balanceOf(player);
-        uint256 fees = token.balanceOf(feeTo);
-        uint256 held = stash.totalHeld();
-        vm.expectEmit(true, false, false, true, address(stash));
-        emit Stash.Withdrawn(player, fee / 2, fee / 2);
-        vm.prank(player);
-        stash.withdraw(fee / 2);
-        assertEq(stash.balance(player), 0);
-        assertEq(stash.totalHeld(), held - fee / 2);
-        assertEq(token.balanceOf(player), wallet);
-        assertEq(token.balanceOf(feeTo), fees + fee / 2);
+    function _withdrawVia(bool relayed, uint256 amount) internal {
+        if (relayed) {
+            Stash.Withdrawal memory order = _withdrawOrder(amount);
+            bytes memory sig = _sig(PLAYER_PK, stash.hashWithdraw(order));
+            stash.withdraw(order, sig);
+        } else {
+            vm.prank(player);
+            stash.withdraw(amount);
+        }
     }
 
-    function test_directWithdraw_balanceEqualToFee_sweptAsFee() public {
-        uint256 fee = stash.withdrawFee();
-        _leaveSmallBalance(fee);
+    /// Expects `err`, then checks that nothing moved and no nonce was used.
+    function _assertWithdrawReverts(bool relayed, uint256 amount, bytes4 err) internal {
+        uint256 bal = stash.balance(player);
+        uint256 held = stash.totalHeld();
         uint256 wallet = token.balanceOf(player);
         uint256 fees = token.balanceOf(feeTo);
-        vm.prank(player);
-        stash.withdraw(fee);
-        assertEq(stash.balance(player), 0);
+        uint256 tokens = token.balanceOf(address(stash));
+        uint256 nonce = stash.nonces(player);
+        if (relayed) {
+            Stash.Withdrawal memory order = _withdrawOrder(amount);
+            bytes memory sig = _sig(PLAYER_PK, stash.hashWithdraw(order));
+            vm.expectRevert(err);
+            stash.withdraw(order, sig);
+        } else {
+            vm.prank(player);
+            vm.expectRevert(err);
+            stash.withdraw(amount);
+        }
+        assertEq(stash.balance(player), bal);
+        assertEq(stash.totalHeld(), held);
         assertEq(token.balanceOf(player), wallet);
+        assertEq(token.balanceOf(feeTo), fees);
+        assertEq(token.balanceOf(address(stash)), tokens);
+        assertEq(stash.nonces(player), nonce);
+    }
+
+    function test_directWithdraw_smallBalance_reverts() public {
+        uint256 fee = stash.withdrawFee();
+        _leaveSmallBalance(fee / 2);
+        uint256 fees = token.balanceOf(feeTo);
+        _assertWithdrawReverts(false, fee / 2, Stash.BalanceAtOrBelowFee.selector);
+        _assertWithdrawReverts(false, 1, Stash.BalanceAtOrBelowFee.selector);
+        assertEq(stash.balance(player), fee / 2);
+        assertEq(token.balanceOf(feeTo), fees);
+    }
+
+    function test_directWithdraw_balanceEqualToFee_reverts() public {
+        uint256 fee = stash.withdrawFee();
+        _leaveSmallBalance(fee);
+        _assertWithdrawReverts(false, fee, Stash.BalanceAtOrBelowFee.selector);
+        assertEq(stash.balance(player), fee);
+    }
+
+    function test_relayWithdraw_smallBalance_reverts() public {
+        uint256 fee = stash.withdrawFee();
+        _leaveSmallBalance(1);
+        _assertWithdrawReverts(true, 1, Stash.BalanceAtOrBelowFee.selector);
+        _assertWithdrawReverts(true, fee, Stash.BalanceAtOrBelowFee.selector);
+        assertEq(stash.balance(player), 1);
+    }
+
+    function test_emptyBalance_reverts() public {
+        _leaveSmallBalance(0);
+        _assertWithdrawReverts(false, 0, Stash.BalanceAtOrBelowFee.selector);
+        _assertWithdrawReverts(false, 2e6, Stash.BalanceAtOrBelowFee.selector);
+        _assertWithdrawReverts(true, 2e6, Stash.BalanceAtOrBelowFee.selector);
+    }
+
+    function test_balanceJustAboveFee_paysOneUnit() public {
+        uint256 fee = stash.withdrawFee();
+        _leaveSmallBalance(fee + 1);
+        uint256 wallet = token.balanceOf(player);
+        uint256 fees = token.balanceOf(feeTo);
+        vm.expectEmit(true, false, false, true, address(stash));
+        emit Stash.Withdrawn(player, fee + 1, fee);
+        vm.prank(player);
+        stash.withdraw(fee + 1);
+        assertEq(stash.balance(player), 0);
+        assertEq(token.balanceOf(player), wallet + 1);
         assertEq(token.balanceOf(feeTo), fees + fee);
     }
 
-    function test_relayWithdraw_smallBalance_sweptAsFee() public {
+    function test_withdraw_mayLeaveSmallBalance_thenTopUpWithdraws() public {
         uint256 fee = stash.withdrawFee();
-        _leaveSmallBalance(1);
+        _leaveSmallBalance(fee);
+        _assertWithdrawReverts(false, fee, Stash.BalanceAtOrBelowFee.selector);
+        vm.prank(player);
+        stash.deposit(1);
         uint256 wallet = token.balanceOf(player);
-        uint256 fees = token.balanceOf(feeTo);
-        Stash.Withdrawal memory order = _withdrawOrder(1);
-        stash.withdraw(order, _sig(PLAYER_PK, stash.hashWithdraw(order)));
+        vm.prank(player);
+        stash.withdraw(fee + 1);
         assertEq(stash.balance(player), 0);
-        assertEq(token.balanceOf(player), wallet);
-        assertEq(token.balanceOf(feeTo), fees + 1);
-        assertLe(1, fee);
+        assertEq(token.balanceOf(player), wallet + 1);
+    }
+
+    function test_zeroFee_paysWholeAmount_andEmptyBalanceReverts() public {
+        Stash s = new Stash(address(puller), address(arrow), address(seat), address(token), feeTo, raiser, 0, 0, _lines());
+        vm.startPrank(player);
+        token.approve(address(s), type(uint256).max);
+        s.deposit(5e6);
+        uint256 wallet = token.balanceOf(player);
+        s.withdraw(5e6);
+        assertEq(token.balanceOf(player), wallet + 5e6);
+        assertEq(token.balanceOf(feeTo), 0);
+        vm.expectRevert(Stash.BalanceAtOrBelowFee.selector);
+        s.withdraw(1);
+        vm.stopPrank();
     }
 
     function test_relayWithdraw_partialAtOrBelowFee_reverts() public {
@@ -332,7 +402,7 @@ contract StashTest is Test {
     function test_keyCannotWithdrawOrRetarget() public {
         uint256 bal = stash.balance(player);
         vm.prank(key);
-        vm.expectRevert(Stash.InsufficientBalance.selector);
+        vm.expectRevert(Stash.BalanceAtOrBelowFee.selector);
         stash.withdraw(2e6);
         assertEq(stash.balance(player), bal);
 
@@ -719,6 +789,45 @@ contract StashTest is Test {
         deploy.run();
     }
 
+    function test_mainnetDeployScript_feesSafeAndPresets() public {
+        DeployStashMainnet deploy = new DeployStashMainnet();
+        assertEq(deploy.SHOT_FEE(), 0.05e6);
+        assertEq(deploy.WITHDRAW_FEE(), 1e6);
+        assertEq(deploy.SAFE(), 0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a);
+        assertEq(deploy.usdg(), 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168);
+        string[16] memory expected = [
+            "Off my seat",
+            "Skill issue",
+            "Diamond hands",
+            "Cope harder",
+            "Comfy up here",
+            "Not your seat",
+            "Touch grass",
+            "Wen dethrone",
+            "Few understand",
+            "Gm from the throne",
+            "Bow down",
+            "Still sitting",
+            "Zoom out",
+            "Ngmi",
+            "Catch me if you can",
+            "Wagmi from up here"
+        ];
+        string[] memory lines = deploy.presetLines();
+        assertEq(lines.length, 16);
+        Stash s = new Stash(
+            address(puller), address(arrow), address(seat), address(token), feeTo, raiser, deploy.SHOT_FEE(), deploy.WITHDRAW_FEE(), lines
+        );
+        assertEq(s.presetCount(), 16);
+        for (uint256 i; i < 16; ++i) {
+            assertEq(lines[i], expected[i]);
+            assertEq(s.preset(i), expected[i]);
+        }
+        vm.chainId(46630);
+        vm.expectRevert(bytes("Stash deploys on chain 4663 only"));
+        deploy.run();
+    }
+
     function testFuzz_chargeIsQuotePlusFee(uint256 quote, uint256 extra) public {
         quote = bound(quote, 1, 100e6);
         extra = bound(extra, 0, 50e6);
@@ -738,15 +847,14 @@ contract StashTest is Test {
         amt = bound(amt, 0, bal + 10e6);
         uint256 fee = stash.withdrawFee();
         vm.prank(player);
-        if (amt == 0 || amt > bal || (amt <= fee && amt != bal)) {
+        if (amt == 0 || amt > bal || amt <= fee) {
             vm.expectRevert();
             stash.withdraw(amt);
         } else {
             stash.withdraw(amt);
             assertEq(stash.balance(player), bal - amt);
-            uint256 taken = amt <= fee ? amt : fee;
-            assertEq(token.balanceOf(player), wallet + amt - taken);
-            assertEq(token.balanceOf(feeTo), taken);
+            assertEq(token.balanceOf(player), wallet + amt - fee);
+            assertEq(token.balanceOf(feeTo), fee);
         }
     }
 
@@ -757,35 +865,72 @@ contract StashTest is Test {
         amt = bound(amt, 0, bal + 1);
         Stash.Withdrawal memory order = _withdrawOrder(amt);
         bytes memory sig = _sig(PLAYER_PK, stash.hashWithdraw(order));
-        if (amt == 0 || amt > bal || (amt <= fee && amt != bal)) {
+        if (amt == 0 || amt > bal || amt <= fee) {
             vm.expectRevert();
             stash.withdraw(order, sig);
         } else {
             stash.withdraw(order, sig);
             assertEq(stash.balance(player), bal - amt);
-            uint256 taken = amt <= fee ? amt : fee;
-            assertEq(token.balanceOf(player), wallet + amt - taken);
-            assertEq(token.balanceOf(feeTo), taken);
+            assertEq(token.balanceOf(player), wallet + amt - fee);
+            assertEq(token.balanceOf(feeTo), fee);
         }
     }
 
-    function testFuzz_smallBalance_alwaysEmptiesToZero(uint256 left, bool relayed) public {
+    function _balanceAtOrBelowFee_reverts(uint256 left, uint256 amt, bool relayed) internal {
         uint256 fee = stash.withdrawFee();
-        left = bound(left, 1, fee * 3);
+        left = bound(left, 0, fee);
+        amt = bound(amt, 0, fee * 3);
         _leaveSmallBalance(left);
+        _assertWithdrawReverts(relayed, amt, Stash.BalanceAtOrBelowFee.selector);
+    }
+
+    function testFuzz_directWithdraw_balanceAtOrBelowFee_reverts(uint256 left, uint256 amt) public {
+        _balanceAtOrBelowFee_reverts(left, amt, false);
+    }
+
+    function testFuzz_relayWithdraw_balanceAtOrBelowFee_reverts(uint256 left, uint256 amt) public {
+        _balanceAtOrBelowFee_reverts(left, amt, true);
+    }
+
+    function _balanceAboveFee_pays(uint256 left, uint256 amt, bool relayed) internal {
+        uint256 fee = stash.withdrawFee();
+        left = bound(left, fee + 1, 5_000e6);
+        amt = bound(amt, fee + 1, left);
+        _leaveSmallBalance(left);
+        uint256 held = stash.totalHeld();
         uint256 wallet = token.balanceOf(player);
         uint256 fees = token.balanceOf(feeTo);
-        if (relayed) {
-            Stash.Withdrawal memory order = _withdrawOrder(left);
-            stash.withdraw(order, _sig(PLAYER_PK, stash.hashWithdraw(order)));
-        } else {
-            vm.prank(player);
-            stash.withdraw(left);
-        }
-        uint256 taken = left <= fee ? left : fee;
-        assertEq(stash.balance(player), 0);
-        assertEq(token.balanceOf(player), wallet + left - taken);
-        assertEq(token.balanceOf(feeTo), fees + taken);
+        vm.expectEmit(true, false, false, true, address(stash));
+        emit Stash.Withdrawn(player, amt, fee);
+        _withdrawVia(relayed, amt);
+        assertEq(stash.balance(player), left - amt);
+        assertEq(stash.totalHeld(), held - amt);
+        assertEq(token.balanceOf(player), wallet + amt - fee);
+        assertEq(token.balanceOf(feeTo), fees + fee);
+    }
+
+    function testFuzz_directWithdraw_balanceAboveFee_pays(uint256 left, uint256 amt) public {
+        _balanceAboveFee_pays(left, amt, false);
+    }
+
+    function testFuzz_relayWithdraw_balanceAboveFee_pays(uint256 left, uint256 amt) public {
+        _balanceAboveFee_pays(left, amt, true);
+    }
+
+    function _amountAtOrBelowFee_reverts(uint256 left, uint256 amt, bool relayed) internal {
+        uint256 fee = stash.withdrawFee();
+        left = bound(left, fee + 1, 5_000e6);
+        amt = bound(amt, 0, fee);
+        _leaveSmallBalance(left);
+        _assertWithdrawReverts(relayed, amt, amt == 0 ? Stash.ZeroAmount.selector : Stash.AmountNotAboveFee.selector);
+    }
+
+    function testFuzz_directWithdraw_amountAtOrBelowFee_reverts(uint256 left, uint256 amt) public {
+        _amountAtOrBelowFee_reverts(left, amt, false);
+    }
+
+    function testFuzz_relayWithdraw_amountAtOrBelowFee_reverts(uint256 left, uint256 amt) public {
+        _amountAtOrBelowFee_reverts(left, amt, true);
     }
 
     function testFuzz_expiry(uint256 exp) public {
