@@ -116,3 +116,11 @@ export class OwnerNonceGuard {
     this.busy.delete(owner.toLowerCase());
   }
 }
+
+/** Thrown by a sender when base fee plus tip would exceed MAX_FEE_GWEI. The relay gives up at once instead of retrying. */
+export class GasCapError extends Error {
+  constructor() {
+    super("gas price above cap");
+    this.name = "GasCapError";
+  }
+}

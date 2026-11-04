@@ -16,7 +16,7 @@ Shoot and Take are signed by the session key. Withdraw, AuthorizeKey, SetLimit, 
 
 A quoted price that moved and still sits inside the signed max is simulated once more, then sent at double the priority fee. A wrong round returns `resign: true` plus `liveRound`. One replacement for that owner is accepted within 60 seconds when `replaces` is true and the new max price is at or below the original.
 
-Limits are 30 requests per owner and 60 per IP in a 60-second window. The IP is the first `x-forwarded-for` hop, or the socket address when that header is absent. Counters live in the process. On Vercel each instance keeps its own, which is enough for this testnet.
+Limits are 30 requests per owner and 60 per IP in a 60-second window, and 60 relayed calls per owner in an hour. A withdraw must be above the withdrawal fee (`WITHDRAW_FEE` in USDG units, default 1000000 = 1 USDG), and the owner's Stash balance must also be above it, read from the Stash before the call is sent. A Take carries only its preset line; a body with its own `line` is refused and `/lines` answers empty. The IP is the first `x-forwarded-for` hop, or the socket address when that header is absent. Counters live in the process. On Vercel each instance keeps its own, which is enough for this testnet.
 
 Below 0.005 ETH the relayer logs `ALERT relayer balance below 0.005 ETH`, sets `low: true` on `GET /health`, and POSTs to `HEALTHCHECK_URL` when that var is set. Point the URL at the monitor's failure endpoint (for healthchecks.io, the check URL plus `/fail`).
 
@@ -34,7 +34,7 @@ JSON bodies. Amounts are decimal strings. `presetId` and `color` are numbers. Re
 | POST | `/set-limit` | SetLimit order |
 | POST | `/revoke-key` | RevokeKey order |
 
-The same paths are served under `/api/...`. CORS allows `GET`, `POST`, and `OPTIONS` from any origin.
+The same paths are served under `/api/...`. CORS allows `GET`, `POST`, and `OPTIONS` only from the origins in `ALLOW_ORIGIN` plus preview URLs matching `ALLOW_ORIGIN_PATTERN`. Any other origin gets no allow header. Signatures still protect every action; CORS only stops other sites calling the relayer from a browser.
 
 `GET /health`
 
@@ -147,6 +147,10 @@ Failures:
 | 400 | a decoded revert | `insufficient balance`, `deadline expired`, `key expired`, `bad nonce`, and the other Stash and game errors |
 | 409 | `wrong round` | the round moved (`resign: true`, `liveRound` set) |
 | 409 | `nonce in use` | this owner already has a call in flight on this instance |
+| 400 | `amount must be above the withdrawal fee` | a withdraw at or below `WITHDRAW_FEE` |
+| 400 | `balance at or below the withdrawal fee` | the owner's Stash balance is at or below `WITHDRAW_FEE` |
+| 502 | `balance unavailable` | the Stash balance could not be read |
+| 400 | `custom lines are off` | a Take with its own `line` |
 | 429 | `rate limit` | the owner or the IP is over the window |
 | 502 | `relay failed` | the send failed, the one retry failed |
 | 502 | `simulation failed` | the `eth_call` itself failed twice |
@@ -178,6 +182,9 @@ Primary types and fields, in this order:
 | `RELAYER_KEY` | yes | hex key for `0x58941E09432D2EF6316FA3b99476e69e68933c94`. Dashboard or shell only |
 | `HEALTHCHECK_URL` | no | POST target used when the balance is under 0.005 ETH |
 | `PRIORITY_GWEI` | no | priority fee in gwei. Default `0.02` |
+| `MAX_FEE_GWEI` | no | gas price cap in gwei (base fee plus tip). Over it the relay answers 503 and sends nothing. Default `0.5`, must be above twice `PRIORITY_GWEI` |
+| `ALLOW_ORIGIN` | no | comma-separated exact origins. Default `https://testnet.gameofsplits.fun,https://gos-testnet.vercel.app`. `*` is refused |
+| `ALLOW_ORIGIN_PATTERN` | no | one anchored regex for preview origins. Default matches gos-testnet and gos-staging previews on the game-of-splits team. `off` disables it |
 | `PORT` | local only | default `8787`. Vercel ignores it |
 
 The process refuses to start on any other chain id or Stash address. A filled `.env` is gitignored. Copy `.env.example`.

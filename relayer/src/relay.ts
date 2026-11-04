@@ -1,6 +1,6 @@
 // Submit one signed Stash call. Simulate first, then send with a priority fee. Retry the send once.
 
-import { LOW_BALANCE_WEI, NonceQueue, OwnerNonceGuard, RateLimit, ResignBook, decideSim, type Sim } from "./policy.ts";
+import { GasCapError, LOW_BALANCE_WEI, NonceQueue, OwnerNonceGuard, RateLimit, ResignBook, decideSim, type Sim } from "./policy.ts";
 
 export interface ShotRequest {
   owner: string;
@@ -20,6 +20,8 @@ export interface RelayDeps {
 
 export interface RelayState {
   rates: RateLimit;
+  /** 60 relayed calls an hour for each wallet. */
+  hourly: RateLimit;
   ips: RateLimit;
   resigns: ResignBook;
   nonces: NonceQueue;
@@ -41,6 +43,7 @@ export interface RelayResult {
 export function freshState(pending: () => Promise<bigint>): RelayState {
   return {
     rates: new RateLimit(30, 60_000),
+    hourly: new RateLimit(60, 3_600_000),
     ips: new RateLimit(60, 60_000),
     resigns: new ResignBook(),
     nonces: new NonceQueue(pending),
@@ -102,7 +105,8 @@ async function sendOnceOrTwice(
     try {
       const hash = await state.nonces.run((nonce) => deps.send(data, { nonce, priorityWei: last }));
       return { status: 200, body: { ok: true, hash } };
-    } catch {
+    } catch (err) {
+      if (err instanceof GasCapError) return { status: 503, body: { ok: false, error: "gas price above cap" } };
       // The nonce queue refreshes from the pending count. One more attempt, then a clear error.
     }
   }
@@ -111,7 +115,7 @@ async function sendOnceOrTwice(
 
 export async function submitShot(deps: RelayDeps, state: RelayState, req: ShotRequest): Promise<RelayResult> {
   const owner = req.owner.toLowerCase();
-  if (!state.rates.allow(owner, deps.now())) {
+  if (!state.rates.allow(owner, deps.now()) || !state.hourly.allow(owner, deps.now())) {
     return { status: 429, body: { ok: false, error: "rate limit" } };
   }
   if (req.replaces) {

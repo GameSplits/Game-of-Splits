@@ -5,7 +5,7 @@ import { encodeFunctionData, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { stashAbi } from "../src/abi.ts";
 import { TESTNET_STASH, loadConfig } from "../src/config.ts";
-import { shootTypes, stashDomain, withdrawTypes } from "../src/eip712.ts";
+import { shootTypes, stashDomain, takeTypes, withdrawTypes } from "../src/eip712.ts";
 import { clientIp, handle, type HandleCtx, type HandleInput } from "../src/http.ts";
 import { pingHealthcheck } from "../src/ping.ts";
 import { NonceQueue, OwnerNonceGuard, RateLimit, ResignBook } from "../src/policy.ts";
@@ -51,12 +51,14 @@ function harness(over: Partial<HandleCtx> = {}) {
     },
     state: {
       rates: new RateLimit(),
+      hourly: new RateLimit(60, 3_600_000),
       ips: new RateLimit(),
       resigns: new ResignBook(),
       nonces: new NonceQueue(async () => 4n),
       owners: new OwnerNonceGuard(),
     },
     sessionKey: async () => session.address,
+    stashBalance: async () => 5_000_000n,
     ...over,
   };
   return { ctx, sent, alerts, simulations: () => simulations };
@@ -323,4 +325,98 @@ test("the healthcheck ping is a POST and a dead url does not throw", async () =>
   assert.equal(method, "POST");
   await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
   await pingHealthcheck("http://127.0.0.1:1/absent");
+});
+
+async function takeBody(line?: unknown): Promise<string> {
+  const message = { owner: owner.address, maxPrice: 10n, presetId: 0, color: 3, nonce: 0n, deadline: 2_000_000_000n, epoch: 1n };
+  const sig = await session.signTypedData({ domain: stashDomain(46630, TESTNET_STASH), types: takeTypes, primaryType: "Take", message });
+  return JSON.stringify({
+    chainId: 46630,
+    stash: TESTNET_STASH,
+    order: {
+      owner: message.owner,
+      maxPrice: "10",
+      presetId: 0,
+      color: 3,
+      nonce: "0",
+      deadline: message.deadline.toString(),
+      epoch: "1",
+    },
+    signature: sig,
+    ...(line === undefined ? {} : { line }),
+  });
+}
+
+const HASH = `0x${"ab".repeat(32)}`;
+
+test("a take with its own line is refused, a preset take goes through", async () => {
+  const h = harness();
+  h.ctx.deps.send = async () => HASH as Hex;
+  const custom = await handle(h.ctx, post("/take", await takeBody("Dawn is mine")));
+  assert.equal(custom.status, 400);
+  assert.equal(custom.body?.error, "custom lines are off");
+  assert.equal(h.sent.length, 0);
+  const plain = await handle(h.ctx, post("/take", await takeBody()));
+  assert.equal(plain.status, 200);
+  assert.equal(plain.body?.line, undefined);
+});
+
+test("lines are no longer served", async () => {
+  const h = harness();
+  const read = await handle(h.ctx, { method: "GET", path: "/lines", route: "lines", headers: {}, body: "", query: `?tx=${HASH}` });
+  assert.deepEqual(read.body, { ok: true, lines: {} });
+});
+
+async function withdrawBody(amount: bigint): Promise<string> {
+  const message = { owner: owner.address, amount, nonce: 0n, deadline: 2_000_000_000n };
+  const signature = await owner.signTypedData({ domain: stashDomain(46630, TESTNET_STASH), types: withdrawTypes, primaryType: "Withdraw", message });
+  return JSON.stringify({
+    chainId: 46630,
+    stash: TESTNET_STASH,
+    order: { owner: message.owner, amount: amount.toString(), nonce: "0", deadline: message.deadline.toString() },
+    signature,
+  });
+}
+
+test("a withdraw at or below the 1 USDG fee is refused before it is sent", async () => {
+  const h = harness();
+  for (const amount of [1n, 999_999n, 1_000_000n]) {
+    const out = await handle(h.ctx, post("/withdraw", await withdrawBody(amount)));
+    assert.equal(out.status, 400);
+    assert.equal(out.body?.error, "amount must be above the withdrawal fee");
+  }
+  assert.equal(h.sent.length, 0);
+  const ok = await handle(h.ctx, post("/withdraw", await withdrawBody(1_000_001n)));
+  assert.equal(ok.status, 200);
+});
+
+test("WITHDRAW_FEE sets the fee and must be whole units", () => {
+  assert.equal(loadConfig(env({ WITHDRAW_FEE: "2000000" })).withdrawFee, 2_000_000n);
+  assert.equal(loadConfig(env()).withdrawFee, 1_000_000n);
+  assert.throws(() => loadConfig(env({ WITHDRAW_FEE: "1.5" })), /WITHDRAW_FEE/);
+});
+
+test("client ip prefers the Vercel edge headers over x-forwarded-for", () => {
+  assert.equal(clientIp({ "x-forwarded-for": "1.2.3.4, 9.9.9.9", "x-vercel-forwarded-for": "9.9.9.9" }), "9.9.9.9");
+  assert.equal(clientIp({ "x-forwarded-for": "1.2.3.4", "x-real-ip": "8.8.8.8" }), "8.8.8.8");
+});
+
+test("a withdraw is refused while the Stash balance is at or below the fee", async () => {
+  for (const balance of [0n, 1n, 1_000_000n]) {
+    const h = harness({ stashBalance: async () => balance });
+    const out = await handle(h.ctx, post("/withdraw", await withdrawBody(2_000_000n)));
+    assert.equal(out.status, 400);
+    assert.equal(out.body?.error, "balance at or below the withdrawal fee");
+    assert.equal(h.sent.length, 0);
+  }
+  const h = harness({ stashBalance: async () => 1_000_001n });
+  const ok = await handle(h.ctx, post("/withdraw", await withdrawBody(1_000_001n)));
+  assert.equal(ok.status, 200);
+});
+
+test("a withdraw is refused when the Stash balance cannot be read", async () => {
+  const h = harness({ stashBalance: async () => { throw new Error("rpc"); } });
+  const out = await handle(h.ctx, post("/withdraw", await withdrawBody(2_000_000n)));
+  assert.equal(out.status, 502);
+  assert.equal(h.sent.length, 0);
 });
