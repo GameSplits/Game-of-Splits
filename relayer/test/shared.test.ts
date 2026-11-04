@@ -192,7 +192,7 @@ test("a timed out broadcast keeps one reservation for both attempts", async () =
   const kv = new FakeKv();
   const io = { nonces: [] as bigint[], fail: false, timeout: true };
   const a = copy(kv, io);
-  assert.equal((await handle(a, req(await authBody("44"), "203.0.113.1"))).status, 502);
+  assert.equal((await handle(a, req(await authBody("44"), "203.0.113.1"))).status, 202);
   const spent = await (a.state.spend as SharedSpend).spentGwei(kv.now);
   assert.ok(spent > 0);
   assert.ok(spent <= Number((96_000n * 20_000_002n + 999_999_999n) / 1_000_000_000n), "one reservation, not two");
@@ -271,7 +271,7 @@ test("a viem-wrapped timeout counts as maybe sent: one attempt, the reservation 
     );
   const body = await authBody("44");
   const out = await handle(a, req(body, "203.0.113.1"));
-  assert.equal(out.status, 502);
+  assert.equal(out.status, 202);
   assert.equal(attempts, 1, "no retry under a new nonce");
   assert.ok((await (a.state.spend as SharedSpend).spentGwei(kv.now)) > 0, "reservation kept");
   assert.equal((await handle(a, req(body, "203.0.113.2"))).body?.error, "nonce in use");

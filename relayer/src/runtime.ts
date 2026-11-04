@@ -9,6 +9,9 @@ import {
   http,
   keccak256,
   type Address,
+  type PrivateKeyAccount,
+  type PublicClient,
+  type WalletClient,
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -17,7 +20,7 @@ import { ERC1271_CHECK_GAS, TESTNET_CHAIN_ID, redact, type RelayerConfig } from 
 import { decodeRevert, extractRevertData } from "./decode.ts";
 import type { HandleCtx } from "./http.ts";
 import { pingHealthcheck } from "./ping.ts";
-import { GasCapError, MaybeSentError, SpendCapError, broadcastAmbiguous, gasLimitFor } from "./policy.ts";
+import { GasCapError, MaybeSentError, SpendCapError, broadcastAmbiguous, gasLimitFor, neverReached } from "./policy.ts";
 import { REVOKES_PER_HOUR, freshState, splitBudget, type RelayDeps, type RelayState, type SendOpts } from "./relay.ts";
 import { SharedNonces, SharedRateLimit, SharedSpend, SharedUsedOrders, upstashEnv, upstashKv, type Kv } from "./shared.ts";
 import type { Sim } from "./policy.ts";
@@ -31,8 +34,14 @@ export function simulationFromError(err: unknown): Sim {
 export interface SendIo {
   baseFee(): Promise<bigint>;
   estimate(data: Hex): Promise<bigint>;
-  broadcast(tx: { data: Hex; nonce: bigint; gas: bigint; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }): Promise<Hex>;
+  broadcast(tx: SendTx, raw?: Hex): Promise<Hex>;
+  /** Signs the transaction locally, so its hash is known before it is sent. */
+  sign?(tx: SendTx): Promise<{ raw: Hex; hash: Hex }>;
+  /** Whether the node knows a transaction by hash, pending or mined. Throws when it cannot tell. */
+  known?(hash: Hex): Promise<boolean>;
 }
+
+export type SendTx = { data: Hex; nonce: bigint; gas: bigint; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint };
 
 /**
  * One relayed send. Refuses a fee above MAX_FEE_GWEI, refuses an estimate above the action's gas cap, never sets a
@@ -44,12 +53,65 @@ export async function sendCapped(io: SendIo, maxFeeWei: bigint, data: Hex, opts:
   if (maxFeePerGas > maxFeeWei) throw new GasCapError();
   const gas = gasLimitFor(await io.estimate(data), opts.gasCap);
   if (!(await opts.reserve(gas * maxFeePerGas))) throw new SpendCapError();
+  const tx: SendTx = { data, nonce: opts.nonce, gas, maxFeePerGas, maxPriorityFeePerGas: opts.priorityWei };
+  const signed = io.sign ? await io.sign(tx) : undefined;
   try {
-    return await io.broadcast({ data, nonce: opts.nonce, gas, maxFeePerGas, maxPriorityFeePerGas: opts.priorityWei });
+    return await io.broadcast(tx, signed?.raw);
   } catch (err) {
     // Only the broadcast itself can leave the outcome unknown.
-    throw broadcastAmbiguous(err) ? new MaybeSentError(err) : err;
+    if (broadcastAmbiguous(err)) throw new MaybeSentError(err, signed?.hash);
+    // A clear error can still follow a send the node took (a proxy timeout, "already known"), so ask for the hash first.
+    if (signed && io.known) {
+      let seen: boolean;
+      try {
+        seen = await io.known(signed.hash);
+      } catch {
+        if (neverReached(err)) throw err;
+        throw new MaybeSentError(err, signed.hash);
+      }
+      if (seen) return signed.hash;
+    }
+    throw err;
   }
+}
+
+/** The viem side of a capped send. The transaction is signed locally so its hash is known before it goes out. */
+export function chainSendIo(
+  pub: PublicClient,
+  wallet: WalletClient,
+  account: PrivateKeyAccount,
+  chainId: number,
+  to: Address,
+): SendIo {
+  const cfg = { chainId, stash: to };
+  return {
+    baseFee: async () => (await pub.getBlock()).baseFeePerGas ?? 0n,
+    estimate: (d) => pub.estimateGas({ account: account.address, to: cfg.stash, data: d }),
+    sign: async (tx) => {
+      const raw = await account.signTransaction({
+        type: "eip1559",
+        chainId: cfg.chainId,
+        to: cfg.stash,
+        data: tx.data,
+        value: 0n,
+        nonce: Number(tx.nonce),
+        gas: tx.gas,
+        maxFeePerGas: tx.maxFeePerGas,
+        maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+      });
+      return { raw, hash: keccak256(raw) };
+    },
+    broadcast: (_tx, raw) => wallet.sendRawTransaction({ serializedTransaction: raw! }),
+    known: async (hash) => {
+      try {
+        await pub.getTransaction({ hash });
+        return true;
+      } catch (err) {
+        if ((err as { name?: string }).name === "TransactionNotFoundError") return false;
+        throw err;
+      }
+    },
+  };
 }
 
 /** Relay state in Upstash, keyed by chain and relayer address so testnet and any later mainnet copy never mix. */
@@ -109,6 +171,7 @@ export function createRuntime(cfg: RelayerConfig, env: NodeJS.ProcessEnv = proce
   const wallet = createWalletClient({ account, chain, transport });
   const secrets = [cfg.key, cfg.rpcUrl, cfg.healthcheckUrl];
 
+  const io = chainSendIo(pub, wallet, account, cfg.chainId, cfg.stash);
   const deps: RelayDeps = {
     now: () => Date.now(),
     simulate: async (data, gasCap) => {
@@ -121,22 +184,7 @@ export function createRuntime(cfg: RelayerConfig, env: NodeJS.ProcessEnv = proce
     },
     send: (data, opts) =>
       sendCapped(
-        {
-          baseFee: async () => (await pub.getBlock()).baseFeePerGas ?? 0n,
-          estimate: (d) => pub.estimateGas({ account: account.address, to: cfg.stash, data: d }),
-          broadcast: (tx) =>
-            wallet.sendTransaction({
-              account,
-              chain,
-              to: cfg.stash,
-              data: tx.data,
-              value: 0n,
-              nonce: Number(tx.nonce),
-              gas: tx.gas,
-              maxFeePerGas: tx.maxFeePerGas,
-              maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
-            }),
-        },
+        io,
         cfg.maxFeeWei,
         data,
         opts,

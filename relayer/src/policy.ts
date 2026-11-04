@@ -142,10 +142,28 @@ export function hasErrorName(err: unknown, name: string): boolean {
 
 /** Thrown only by the broadcast call, when the transaction may have reached the node anyway. */
 export class MaybeSentError extends Error {
-  constructor(cause: unknown) {
+  /** The locally computed hash of the signed transaction, when one is known. */
+  readonly hash?: `0x${string}`;
+  constructor(cause: unknown, hash?: `0x${string}`) {
     super("broadcast outcome unknown", { cause });
     this.name = "MaybeSentError";
+    if (hash) this.hash = hash;
   }
+}
+
+/** The hash a MaybeSentError anywhere in the chain carries, if any. */
+export function maybeSentHash(err: unknown): `0x${string}` | undefined {
+  const found = causes(err).find((e) => e.name === "MaybeSentError") as MaybeSentError | undefined;
+  return found?.hash;
+}
+
+/** A broadcast error that shows the request never reached a node that could accept it: a refused connection or an HTTP 4xx. */
+export function neverReached(err: unknown): boolean {
+  const chain = causes(err);
+  if (chain.some((e) => (e as { code?: unknown }).code === "ECONNREFUSED")) return true;
+  const http = chain.find((e) => e.name === "HttpRequestError");
+  const status = (http as { status?: unknown } | undefined)?.status;
+  return typeof status === "number" && status >= 400 && status < 500;
 }
 
 /**

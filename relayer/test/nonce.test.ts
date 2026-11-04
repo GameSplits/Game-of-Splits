@@ -3,13 +3,13 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
-import { HttpRequestError, NonceTooHighError, TimeoutError, createPublicClient, createWalletClient, defineChain, http as transport, type Hex } from "viem";
+import { HttpRequestError, NonceTooHighError, TimeoutError, createPublicClient, createWalletClient, defineChain, http as transport, keccak256, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { TESTNET_STASH, loadConfig } from "../src/config.ts";
 import * as eip712 from "../src/eip712.ts";
 import { handle, type HandleCtx, type HandleInput } from "../src/http.ts";
 import { NonceQueue, broadcastAmbiguous, mayHaveBroadcast } from "../src/policy.ts";
-import { sendCapped, sharedState } from "../src/runtime.ts";
+import { chainSendIo, sendCapped, sharedState } from "../src/runtime.ts";
 import { SharedNonces, type Kv } from "../src/shared.ts";
 import { FakeKv } from "./fake-kv.ts";
 
@@ -48,8 +48,18 @@ const txErr = (cause: Error) => {
 const http503 = () => new HttpRequestError({ url: "http://127.0.0.1:1", status: 503, body: {} });
 const http429 = () => new HttpRequestError({ url: "http://127.0.0.1:1", status: 429, body: {} });
 
-type Chain = { pending: bigint };
-type Faults = { baseFee?: () => Promise<bigint>; estimate?: () => Promise<bigint>; broadcast?: (n: bigint) => Promise<void> };
+type Chain = { pending: bigint; mined?: Set<string> };
+type Faults = {
+  baseFee?: () => Promise<bigint>;
+  estimate?: () => Promise<bigint>;
+  broadcast?: (n: bigint) => Promise<void>;
+  /** Thrown after the node took the transaction, as a proxy that answers late or "already known" would. */
+  after?: (n: bigint) => Error | undefined;
+  /** Sign locally and look the hash up after a clear error, as the runtime does. */
+  signed?: boolean;
+  known?: (hash: Hex) => Promise<boolean>;
+};
+const hashFor = (n: bigint) => `0x${n.toString(16).padStart(64, "0")}` as Hex;
 
 function copy(kv: Kv, chain: Chain, f: Faults = {}, ownerNonce: (o: string) => Promise<bigint> = async () => 0n) {
   const sends: bigint[] = [];
@@ -70,8 +80,17 @@ function copy(kv: Kv, chain: Chain, f: Faults = {}, ownerNonce: (o: string) => P
               if (tx.nonce > chain.pending) throw txErr(new NonceTooHighError({ nonce: Number(tx.nonce) }));
               if (tx.nonce < chain.pending) throw txErr(new Error("nonce too low"));
               chain.pending++;
-              return `0x${tx.nonce.toString(16).padStart(64, "0")}` as Hex;
+              chain.mined?.add(hashFor(tx.nonce));
+              const late = f.after?.(tx.nonce);
+              if (late) throw late;
+              return hashFor(tx.nonce);
             },
+            ...(f.signed
+              ? {
+                  sign: async (tx: { nonce: bigint }) => ({ raw: hashFor(tx.nonce), hash: hashFor(tx.nonce) }),
+                  known: f.known ?? (async (h: Hex) => !!chain.mined?.has(h)),
+                }
+              : {}),
           },
           cfg.maxFeeWei,
           data,
@@ -198,7 +217,7 @@ test("B-1 trigger: a broadcast timeout that never reached the node recovers afte
   let fail = true;
   const a = copy(kv, chain, { broadcast: async () => { if (fail) { fail = false; throw txErr(new TimeoutError({ body: {}, url: "http://127.0.0.1:1" })); } } });
   const body = await authBody(0);
-  assert.equal((await handle(a.ctx, req("authorize-key", body, "198.51.100.250"))).status, 502);
+  assert.equal((await handle(a.ctx, req("authorize-key", body, "198.51.100.250"))).status, 202);
   assert.equal((await handle(a.ctx, req("authorize-key", body, "198.51.100.251"))).body?.error, "nonce in use", "a maybe-sent order stays taken");
   assert.deepEqual(await tail(a.ctx, 1, 5), [200, 200, 200, 200, 200], "the gap is found and filled inside the next request");
   assert.equal(chain.pending, 5n);
@@ -209,7 +228,7 @@ test("B-1 trigger: an RPC 503 on the broadcast that never reached the node recov
   const chain: Chain = { pending: 0n };
   let fail = true;
   const a = copy(kv, chain, { broadcast: async () => { if (fail) { fail = false; throw txErr(http503()); } } });
-  assert.equal((await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"))).status, 502);
+  assert.equal((await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"))).status, 202);
   assert.deepEqual(await tail(a.ctx, 1, 3), [200, 200, 200]);
 });
 
@@ -314,4 +333,114 @@ test("relayed set limit and authorize only at the current nonce; with the RPC do
   const rv = await r("revoke-key", await revokeBody(6, 9n), "203.0.113.8");
   assert.deepEqual([sl.status, sl.body?.error, au.status, au.body?.error], [502, "nonce unavailable", 502, "nonce unavailable"]);
   assert.equal(rv.status, 200, "revoke still relays while the nonce read is down");
+});
+
+const rpcErr = (msg: string) => txErr(Object.assign(new Error(msg), { name: "RpcRequestError", code: -32603 }));
+
+test("C-2: a clear JSON-RPC error after the node took the send is checked by hash and counted as sent, with no second send", async () => {
+  for (const msg of ["request timed out", "already known"]) {
+    const kv = new FakeKv();
+    const chain: Chain = { pending: 0n, mined: new Set() };
+    let fail = true;
+    const a = copy(kv, chain, { signed: true, after: () => (fail ? ((fail = false), rpcErr(msg)) : undefined) });
+    const out = await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"));
+    assert.deepEqual([out.status, out.body?.hash], [200, hashFor(0n)], msg);
+    assert.deepEqual(a.sends, [0n], msg);
+    assert.equal((await handle(a.ctx, req("authorize-key", await authBody(1), "198.51.100.251"))).status, 200, msg);
+    assert.deepEqual(a.sends, [0n, 1n], msg);
+  }
+});
+
+test("C-2: a clear error whose hash the node does not know is retried at the same nonce", async () => {
+  const kv = new FakeKv();
+  const chain: Chain = { pending: 0n, mined: new Set() };
+  let fail = true;
+  const a = copy(kv, chain, { signed: true, broadcast: async () => { if (fail) { fail = false; throw rpcErr("already known"); } } });
+  assert.equal((await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"))).status, 200);
+  assert.deepEqual(a.sends, [0n, 0n]);
+});
+
+test("C-2: when the hash lookup fails after a JSON-RPC error the send counts as maybe sent, but a 429 or refused send stays a sure failure", async () => {
+  const kv = new FakeKv();
+  const chain: Chain = { pending: 0n, mined: new Set() };
+  const down = async () => { throw http503(); };
+  let fail = true;
+  const a = copy(kv, chain, { signed: true, known: down, after: () => (fail ? ((fail = false), rpcErr("request timed out")) : undefined) });
+  const out = await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"));
+  assert.deepEqual([out.status, out.body?.maybeSent, out.body?.hash], [202, true, hashFor(0n)]);
+  assert.deepEqual(a.sends, [0n]);
+  assert.equal((await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"))).body?.error, "nonce in use");
+
+  const refused = Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+  for (const [label, err] of [["429", txErr(http429())], ["refused", txErr(new TypeError("fetch failed", { cause: refused }))]] as const) {
+    const kv2 = new FakeKv();
+    const c2: Chain = { pending: 0n, mined: new Set() };
+    let once2 = true;
+    const b = copy(kv2, c2, { signed: true, known: down, broadcast: async () => { if (once2) { once2 = false; throw err; } } });
+    assert.equal((await handle(b.ctx, req("authorize-key", await authBody(0), "198.51.100.250"))).status, 200, label);
+    assert.deepEqual(b.sends, [0n, 0n], label);
+  }
+});
+
+test("C-1: a maybe-sent relay answers 202 with maybeSent and the signed hash in the body, never a 5xx", async () => {
+  const kv = new FakeKv();
+  const chain: Chain = { pending: 0n, mined: new Set() };
+  const a = copy(kv, chain, { signed: true, broadcast: async () => { throw txErr(new TimeoutError({ body: {}, url: "http://127.0.0.1:1" })); } });
+  const out = await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"));
+  assert.equal(out.status, 202);
+  assert.deepEqual(out.body, { ok: false, pending: true, maybeSent: true, error: "relay pending", hash: hashFor(0n) });
+  assert.deepEqual(a.sends, [0n]);
+  // With no local hash the body still says maybeSent, just without a hash.
+  const b = copy(new FakeKv(), { pending: 0n }, { broadcast: async () => { throw txErr(http503()); } });
+  const out2 = await handle(b.ctx, req("authorize-key", await authBody(0), "198.51.100.250"));
+  assert.deepEqual([out2.status, out2.body?.maybeSent, out2.body?.pending, "hash" in (out2.body ?? {})], [202, true, true, false]);
+});
+
+test("C-2 with real viem: the runtime signs locally, and a JSON-RPC timeout on a send the node holds returns the node's hash", async () => {
+  const seen = new Set<string>();
+  let lookupDown = false;
+  const s = http.createServer((q, res) => {
+    let d = "";
+    q.on("data", (c) => (d += c));
+    q.on("end", () => {
+      const b = JSON.parse(d) as { id: number; method: string; params: unknown[] };
+      res.setHeader("content-type", "application/json");
+      const reply = (x: object) => res.end(JSON.stringify({ jsonrpc: "2.0", id: b.id, ...x }));
+      if (b.method === "eth_getBlockByNumber") return reply({ result: { baseFeePerGas: "0x1", number: "0x1", hash: `0x${"0".repeat(64)}`, transactions: [] } });
+      if (b.method === "eth_estimateGas") return reply({ result: "0x5208" });
+      if (b.method === "eth_sendRawTransaction") {
+        const raw = b.params[0] as Hex;
+        if (raw.length > 4) seen.add(keccak256(raw));
+        return reply({ error: { code: -32603, message: "request timed out" } });
+      }
+      if (b.method === "eth_getTransactionByHash") {
+        if (lookupDown) return reply({ error: { code: -32603, message: "internal error" } });
+        return reply({ result: null });
+      }
+      reply({ error: { code: -32601, message: "method not found" } });
+    });
+  }).listen(0, "127.0.0.1");
+  await new Promise((r) => s.on("listening", r));
+  try {
+    const u = `http://127.0.0.1:${(s.address() as { port: number }).port}`;
+    const chain = defineChain({ id: 46630, name: "t", nativeCurrency: { name: "E", symbol: "E", decimals: 18 }, rpcUrls: { default: { http: [u] } } });
+    const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
+    const t = transport(u, { retryCount: 0, timeout: 2_000 });
+    const io = chainSendIo(createPublicClient({ chain, transport: t }), createWalletClient({ account, chain, transport: t }), account, 46630, TESTNET_STASH);
+    const opts = { nonce: 3n, priorityWei: 1n, gasCap: 900_000n, reserve: async () => true };
+    // The node has not got it: a sure failure, so the caller may retry.
+    const sure = await sendCapped(io, 10n ** 12n, "0x01", opts).then(() => null, (e: unknown) => e);
+    assert.equal(mayHaveBroadcast(sure), false);
+    const hash = [...seen][0] as Hex;
+    // The node has it: counted as sent with the locally computed hash, which matches what the node saw.
+    const known = { ...io, known: async (h: Hex) => h === hash };
+    assert.equal(await sendCapped(known, 10n ** 12n, "0x01", opts), hash);
+    // The lookup fails: maybe sent, carrying the hash.
+    lookupDown = true;
+    const maybe = await sendCapped(io, 10n ** 12n, "0x01", opts).then(() => null, (e: unknown) => e);
+    assert.equal(mayHaveBroadcast(maybe), true);
+    assert.equal((maybe as { hash?: string }).hash, hash);
+  } finally {
+    s.close();
+  }
 });

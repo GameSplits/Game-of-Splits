@@ -156,7 +156,8 @@ Failures:
 | 400 | `custom lines are off` | a Take with its own `line` |
 | 429 | `rate limit` | the owner or the IP is over the window |
 | 503 | `relay paused` | the hourly ETH budget is spent |
-| 502 | `relay failed` | the send failed, the one retry failed |
+| 502 | `relay failed` | the send failed, the one retry failed, and nothing went out |
+| 202 | `relay pending` | the send may have gone out (`pending: true`, `maybeSent: true`, `hash` when known). Do not send the order another way until its nonce moves, the hash is mined or its deadline passes |
 | 502 | `simulation failed` | the `eth_call` itself failed twice |
 | 502 | `session unavailable` | the session read failed |
 | 503 | `balance unavailable` | `/health` could not read the balance |

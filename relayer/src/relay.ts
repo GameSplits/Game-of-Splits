@@ -13,6 +13,7 @@ import {
   SpendCapError,
   decideSim,
   mayHaveBroadcast,
+  maybeSentHash,
   type Limiter,
   type Nonces,
   type Sim,
@@ -86,6 +87,9 @@ export interface RelayResult {
     resign?: boolean;
     livePrice?: string;
     liveRound?: string;
+    /** Set with status 202 when the send may have reached the node. The hash is the signed transaction's, if known. */
+    pending?: boolean;
+    maybeSent?: boolean;
   };
   /** Set when a send may have reached the node, so the order must stay taken. */
   maybeSent?: boolean;
@@ -172,6 +176,7 @@ async function sendOnceOrTwice(
     return true;
   };
   let maybeSent = false;
+  let maybeHash: string | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
     last = priorities[attempt] ?? last;
     try {
@@ -191,13 +196,18 @@ async function sendOnceOrTwice(
       // A timeout may still have reached the node, so the reservation is kept and there is no retry under a new nonce.
       if (mayHaveBroadcast(err)) {
         maybeSent = true;
+        maybeHash = maybeSentHash(err);
         break;
       }
       // The nonce queue refreshes from the pending count. One more attempt, then a clear error.
     }
   }
   if (held > 0n && !maybeSent) await spend.release(held, heldAt);
-  return { status: 502, body: { ok: false, error: "relay failed" }, ...(maybeSent ? { maybeSent: true } : {}) };
+  // A send that may have gone out gets 202, never a 5xx, so a client does not take it for "relayer down" and send again.
+  if (maybeSent) {
+    return { status: 202, body: { ok: false, pending: true, maybeSent: true, error: "relay pending", ...(maybeHash ? { hash: maybeHash } : {}) }, maybeSent: true };
+  }
+  return { status: 502, body: { ok: false, error: "relay failed" } };
 }
 
 export async function submitShot(deps: RelayDeps, state: RelayState, req: ShotRequest): Promise<RelayResult> {
