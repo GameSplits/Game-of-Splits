@@ -70,6 +70,7 @@ export function createRuntime(cfg: RelayerConfig): HandleCtx {
     deps,
     state: freshState(async () => BigInt(await pub.getTransactionCount({ address: account.address, blockTag: "pending" }))),
     sessionKey: (owner: Address) => readSessionKey(pub, cfg.stash, owner),
+    stashBalance: (owner: Address) => pub.readContract({ address: cfg.stash, abi: stashAbi, functionName: "balance", args: [owner] }),
   };
 }
 

@@ -58,6 +58,7 @@ function harness(over: Partial<HandleCtx> = {}) {
       owners: new OwnerNonceGuard(),
     },
     sessionKey: async () => session.address,
+    stashBalance: async () => 5_000_000n,
     ...over,
   };
   return { ctx, sent, alerts, simulations: () => simulations };
@@ -398,4 +399,24 @@ test("WITHDRAW_FEE sets the fee and must be whole units", () => {
 test("client ip prefers the Vercel edge headers over x-forwarded-for", () => {
   assert.equal(clientIp({ "x-forwarded-for": "1.2.3.4, 9.9.9.9", "x-vercel-forwarded-for": "9.9.9.9" }), "9.9.9.9");
   assert.equal(clientIp({ "x-forwarded-for": "1.2.3.4", "x-real-ip": "8.8.8.8" }), "8.8.8.8");
+});
+
+test("a withdraw is refused while the Stash balance is at or below the fee", async () => {
+  for (const balance of [0n, 1n, 1_000_000n]) {
+    const h = harness({ stashBalance: async () => balance });
+    const out = await handle(h.ctx, post("/withdraw", await withdrawBody(2_000_000n)));
+    assert.equal(out.status, 400);
+    assert.equal(out.body?.error, "balance at or below the withdrawal fee");
+    assert.equal(h.sent.length, 0);
+  }
+  const h = harness({ stashBalance: async () => 1_000_001n });
+  const ok = await handle(h.ctx, post("/withdraw", await withdrawBody(1_000_001n)));
+  assert.equal(ok.status, 200);
+});
+
+test("a withdraw is refused when the Stash balance cannot be read", async () => {
+  const h = harness({ stashBalance: async () => { throw new Error("rpc"); } });
+  const out = await handle(h.ctx, post("/withdraw", await withdrawBody(2_000_000n)));
+  assert.equal(out.status, 502);
+  assert.equal(h.sent.length, 0);
 });

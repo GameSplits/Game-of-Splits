@@ -13,6 +13,8 @@ export interface HandleCtx {
   deps: RelayDeps;
   state: RelayState;
   sessionKey(owner: Address): Promise<Address>;
+  /** The owner's Stash balance. A withdraw is refused while it is at or below the fee. */
+  stashBalance(owner: Address): Promise<bigint>;
 }
 
 export interface HandleInput {
@@ -116,6 +118,17 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
       await assertSignature(ctx.cfg, parsed.action, key);
     } else {
       await assertSignature(ctx.cfg, parsed.action as SignedAction, parsed.action.message.owner);
+    }
+    if (parsed.action.kind === "withdraw") {
+      let balance: bigint;
+      try {
+        balance = await ctx.stashBalance(parsed.action.message.owner);
+      } catch {
+        return { status: 502, body: { ok: false, error: "balance unavailable" } };
+      }
+      if (balance <= ctx.cfg.withdrawFee) {
+        return { status: 400, body: { ok: false, error: "balance at or below the withdrawal fee" } };
+      }
     }
     const result = await submitShot(ctx.deps, ctx.state, parsed.request);
     return { status: result.status, body: result.body };

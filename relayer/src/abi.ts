@@ -141,6 +141,13 @@ export const stashAbi = [
   },
   {
     type: "function",
+    name: "balance",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "session",
     stateMutability: "view",
     inputs: [{ name: "owner", type: "address" }],
