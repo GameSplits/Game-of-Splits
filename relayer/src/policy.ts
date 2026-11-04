@@ -41,11 +41,13 @@ export interface Spend {
 
 /** Signed orders already taken, keyed by action, owner and order nonce. */
 export interface UsedOrders {
-  claim(id: string, now: number): MaybePromise<boolean>;
+  /** Take the order for ttlMs, or the store's default hold when none is given. */
+  claim(id: string, now: number, ttlMs?: number): MaybePromise<boolean>;
   drop(id: string): MaybePromise<void>;
 }
 
 export class MemoryUsedOrders implements UsedOrders {
+  /** Order id to the time its hold ends. */
   private readonly seen = new Map<string, number>();
   private readonly ttlMs: number;
 
@@ -53,11 +55,11 @@ export class MemoryUsedOrders implements UsedOrders {
     this.ttlMs = ttlMs;
   }
 
-  claim(id: string, now: number): boolean {
-    for (const [key, at] of this.seen) if (now - at >= this.ttlMs) this.seen.delete(key);
+  claim(id: string, now: number, ttlMs = this.ttlMs): boolean {
+    for (const [key, until] of this.seen) if (now >= until) this.seen.delete(key);
     const key = id.toLowerCase();
     if (this.seen.has(key)) return false;
-    this.seen.set(key, now);
+    this.seen.set(key, now + Math.min(ttlMs, this.ttlMs));
     return true;
   }
 
@@ -192,7 +194,8 @@ export function neverReached(err: unknown): boolean {
   if (chain.some((e) => (e as { code?: unknown }).code === "ECONNREFUSED")) return true;
   const http = chain.find((e) => e.name === "HttpRequestError");
   const status = (http as { status?: unknown } | undefined)?.status;
-  return typeof status === "number" && status >= 400 && status < 500;
+  // A 408 or 429 can come from a gateway that already forwarded the send, so neither proves it never arrived.
+  return typeof status === "number" && status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
 /**

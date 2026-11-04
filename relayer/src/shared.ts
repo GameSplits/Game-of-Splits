@@ -215,8 +215,8 @@ export class SharedUsedOrders implements UsedOrders {
     this.ttlMs = ttlMs;
   }
 
-  claim(id: string, _now?: number): Promise<boolean> {
-    return this.kv.setNx(`${this.prefix}:${id.toLowerCase()}`, "1", this.ttlMs);
+  claim(id: string, _now?: number, ttlMs = this.ttlMs): Promise<boolean> {
+    return this.kv.setNx(`${this.prefix}:${id.toLowerCase()}`, "1", Math.min(ttlMs, this.ttlMs));
   }
 
   async drop(id: string): Promise<void> {

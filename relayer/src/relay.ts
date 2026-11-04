@@ -183,6 +183,14 @@ async function sendOnceOrTwice(
   let maybeHash: string | undefined;
   // A send the node seemed to refuse can still have been forwarded, so once one was tried nothing here says "not sent".
   let tried = false;
+  // Budget and alert writes after a send are best effort: a KV error there must not lose the sent state.
+  const quietly = async (step: () => unknown) => {
+    try {
+      await step();
+    } catch {
+      // best effort
+    }
+  };
   const failed = (): RelayResult => ({ status: 502, body: { ok: false, error: "relay failed" }, tried: true });
   for (let attempt = 0; attempt < 2; attempt++) {
     last = priorities[attempt] ?? last;
@@ -192,10 +200,14 @@ async function sendOnceOrTwice(
       return { status: 200, body: { ok: true, hash } };
     } catch (err) {
       if (err instanceof GasCapError || err instanceof GasLimitError || err instanceof SpendCapError) {
-        if (held > 0n && !maybeSent) await spend.release(held, heldAt);
+        if (held > 0n && !maybeSent) await quietly(() => spend.release(held, heldAt));
       }
       if ((err instanceof GasCapError || err instanceof GasLimitError || err instanceof SpendCapError) && tried) {
-        if (err instanceof SpendCapError && (await spend.alertDue(deps.now()))) await deps.alert("relayer hourly ETH budget reached, relaying paused");
+        if (err instanceof SpendCapError) {
+          await quietly(async () => {
+            if (await spend.alertDue(deps.now())) await deps.alert("relayer hourly ETH budget reached, relaying paused");
+          });
+        }
         return failed();
       }
       if (err instanceof GasCapError) return { status: 503, body: { ok: false, error: "gas price above cap" } };
@@ -213,7 +225,7 @@ async function sendOnceOrTwice(
       // The nonce queue refreshes from the pending count. One more attempt, then a clear error.
     }
   }
-  if (held > 0n && !maybeSent) await spend.release(held, heldAt);
+  if (held > 0n && !maybeSent) await quietly(() => spend.release(held, heldAt));
   // A send that may have gone out gets 202, never a 5xx, so a client does not take it for "relayer down" and send again.
   if (maybeSent) {
     return { status: 202, body: { ok: false, pending: true, maybeSent: true, error: "relay pending", ...(maybeHash ? { hash: maybeHash } : {}) }, maybeSent: true };

@@ -24,9 +24,9 @@ const str = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o)
 const req = (route: string, body: string, ip: string): HandleInput => ({ method: "POST", path: `/${route}`, route, headers: { "x-vercel-forwarded-for": ip }, body });
 const owner = (i: number) => privateKeyToAccount(`0x${(i + 1000).toString(16).padStart(64, "0")}` as Hex);
 
-async function authBody(i: number, nonce = 0n) {
+async function authBody(i: number, nonce = 0n, deadline = 2_000_000_000n) {
   const a = owner(i);
-  const m = { owner: a.address, key: session.address, limit: 1n, expiry: 2_000_000_000n, nonce, deadline: 2_000_000_000n };
+  const m = { owner: a.address, key: session.address, limit: 1n, expiry: 2_000_000_000n, nonce, deadline };
   const signature = await a.signTypedData({ domain, types: eip712.authorizeTypes, primaryType: "AuthorizeKey", message: m });
   return JSON.stringify({ chainId: 46630, stash: TESTNET_STASH, order: str(m), signature });
 }
@@ -158,8 +158,8 @@ test("RPC 429 and 503 on every pre-broadcast read never skip a nonce or lock the
   }
 });
 
-test("an HTTP 429 or a refused connection on the broadcast itself is a sure failure", async () => {
-  for (const err of [txErr(http429()), txErr(Object.assign(new Error("fetch failed"), { cause: Object.assign(new Error("connect"), { code: "ECONNREFUSED" }) }))]) {
+test("a refused connection on the broadcast itself is a sure failure", async () => {
+  for (const err of [txErr(Object.assign(new Error("fetch failed"), { cause: Object.assign(new Error("connect"), { code: "ECONNREFUSED" }) }))]) {
     const kv = new FakeKv();
     const chain: Chain = { pending: 0n };
     let fail = true;
@@ -402,7 +402,7 @@ test("C-2r: a known refusal with an unknown hash stays a sure failure and is ret
   assert.equal(low.sends.at(-1), 3n);
 });
 
-test("C-2: when the hash lookup fails after a JSON-RPC error the send counts as maybe sent, but a 429 or refused send stays a sure failure", async () => {
+test("C-2: when the hash lookup fails after a JSON-RPC error the send counts as maybe sent, but a refused send stays a sure failure", async () => {
   const kv = new FakeKv();
   const chain: Chain = { pending: 0n, mined: new Set() };
   const down = async () => { throw http503(); };
@@ -414,7 +414,7 @@ test("C-2: when the hash lookup fails after a JSON-RPC error the send counts as 
   assert.equal((await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"))).body?.error, "nonce in use");
 
   const refused = Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
-  for (const [label, err] of [["429", txErr(http429())], ["refused", txErr(new TypeError("fetch failed", { cause: refused }))]] as const) {
+  for (const [label, err] of [["refused", txErr(new TypeError("fetch failed", { cause: refused }))]] as const) {
     const kv2 = new FakeKv();
     const c2: Chain = { pending: 0n, mined: new Set() };
     let once2 = true;
@@ -686,4 +686,52 @@ test("not-sent marker: refusals before any send carry sent:false and the header,
   // Success: no marker.
   const ok = copy(new FakeKv(), { pending: 0n });
   assert.deepEqual(await marked(await handle(ok.ctx, req("authorize-key", await authBody(0), "198.51.100.6"))), [200, undefined, null]);
+});
+
+test("L-3: an HTTP 408 or 429 on the broadcast with a lagging lookup is maybe sent, with one send and no second nonce", async () => {
+  const http408 = () => new HttpRequestError({ url: "http://127.0.0.1:1", status: 408, body: {} });
+  for (const [i, err] of [txErr(http429()), txErr(http408())].entries()) {
+    const a = copy(new FakeKv(), { pending: 0n, mined: new Set() }, { signed: true, known: async () => false, after: () => err });
+    const out = await handle(a.ctx, req("authorize-key", await authBody(0), `198.51.100.${200 + i}`));
+    assert.deepEqual([out.status, out.body?.maybeSent, a.sends], [202, true, [0n]]);
+  }
+});
+
+test("L-1: a tried order is held until its deadline plus 30 s, not a flat 600 s", async () => {
+  const kv = new FakeKv();
+  const a = copy(kv, { pending: 0n, mined: new Set() }, { signed: true, known: async () => false, broadcast: async () => { throw rpcErr("insufficient funds"); } });
+  const deadline = BigInt(kv.now / 1000 + 60);
+  const body = await authBody(0, 0n, deadline);
+  assert.equal((await handle(a.ctx, req("authorize-key", body, "198.51.100.210"))).status, 502);
+  kv.now += 89_000;
+  assert.equal((await handle(a.ctx, req("authorize-key", body, "198.51.100.211"))).body?.error, "nonce in use");
+  kv.now += 2_000;
+  assert.notEqual((await handle(a.ctx, req("authorize-key", body, "198.51.100.212"))).body?.error, "nonce in use");
+  // A far deadline is still capped at 600 s.
+  const kv2 = new FakeKv();
+  const b = copy(kv2, { pending: 0n, mined: new Set() }, { signed: true, known: async () => false, broadcast: async () => { throw rpcErr("insufficient funds"); } });
+  const far = await authBody(1);
+  await handle(b.ctx, req("authorize-key", far, "198.51.100.213"));
+  kv2.now += 599_000;
+  assert.equal((await handle(b.ctx, req("authorize-key", far, "198.51.100.214"))).body?.error, "nonce in use");
+  kv2.now += 2_000;
+  assert.notEqual((await handle(b.ctx, req("authorize-key", far, "198.51.100.215"))).body?.error, "nonce in use");
+});
+
+test("L-2: a KV error releasing the budget after a tried send keeps the order held and unmarked", async () => {
+  class BrokenRefunds extends FakeKv {
+    async incrBy(key: string, by: number) {
+      if (by < 0 && key.includes("spend")) throw new Error("kv down");
+      return super.incrBy(key, by);
+    }
+  }
+  const kv = new BrokenRefunds();
+  const a = copy(kv, { pending: 0n, mined: new Set() }, { signed: true, known: async () => false, broadcast: async () => { throw rpcErr("insufficient funds"); } });
+  const body = await authBody(0);
+  const out = await handle(a.ctx, req("authorize-key", body, "198.51.100.220"));
+  const res = toResponse(out, {});
+  assert.deepEqual([out.status, out.body?.error, out.body?.sent, res.headers.get(NOT_SENT_HEADER)], [502, "relay failed", undefined, null]);
+  const sends = a.sends.length;
+  assert.equal((await handle(a.ctx, req("authorize-key", body, "198.51.100.221"))).body?.error, "nonce in use");
+  assert.equal(a.sends.length, sends, "no second relay of the same order");
 });

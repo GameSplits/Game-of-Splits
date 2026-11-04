@@ -105,6 +105,9 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
   return markNotSent(await route(ctx, input));
 }
 
+/** Extra hold past an order's deadline, for chain time running ahead of or behind the relayer's clock. */
+const ORDER_HOLD_MARGIN_MS = 30_000;
+
 async function route(ctx: HandleCtx, input: HandleInput): Promise<HandleOutput & { maybeSent?: boolean; tried?: boolean }> {
   if (input.method === "OPTIONS") return { status: 204, body: null };
   const name = input.route && input.route.length > 0 ? input.route : barePath(input.path).replace(/^\//, "");
@@ -177,7 +180,10 @@ async function route(ctx: HandleCtx, input: HandleInput): Promise<HandleOutput &
     if (gate) return gate;
     const used = ctx.state.used;
     const orderId = `${parsed.action.kind}:${parsed.action.message.owner}:${parsed.action.message.nonce}`;
-    if (used && !(await used.claim(orderId, ctx.deps.now()))) {
+    // Held no longer than the order can land: past its deadline the contract refuses it, so a direct play is safe.
+    const now = ctx.deps.now();
+    const holdMs = Math.max(1_000, Math.min(600_000, Number(parsed.action.message.deadline) * 1000 - now + ORDER_HOLD_MARGIN_MS));
+    if (used && !(await used.claim(orderId, now, holdMs))) {
       return { status: 400, body: { ok: false, error: "nonce in use" } };
     }
     let result: Awaited<ReturnType<typeof submitShot>> | undefined;
