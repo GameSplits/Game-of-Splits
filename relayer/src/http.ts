@@ -134,6 +134,11 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
       if (next !== undefined && parsed.action.message.nonce < next) {
         return { status: 400, body: { ok: false, error: "nonce used" } };
       }
+      // Key changes are relayed only at the current nonce, so a held future order cannot bring a revoked key back.
+      if (isKeyChange(parsed.action.kind)) {
+        if (next === undefined) return { status: 502, body: { ok: false, error: "nonce unavailable" } };
+        if (parsed.action.message.nonce !== next) return { status: 400, body: { ok: false, error: "nonce not current" } };
+      }
     }
     if (parsed.action.kind === "withdraw") {
       let balance: bigint;
@@ -157,8 +162,8 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
     try {
       result = await submitShot(ctx.deps, ctx.state, parsed.request);
     } finally {
-      // Only an order that went out stays taken, so a refused one can be sent again.
-      if (used && result?.status !== 200) await used.drop(orderId);
+      // Only an order that went out, or may have, stays taken, so a refused one can be sent again.
+      if (used && result?.status !== 200 && !result?.maybeSent) await used.drop(orderId);
     }
     return { status: result.status, body: result.body };
   } catch (err) {
@@ -198,6 +203,10 @@ async function accountGate(ctx: HandleCtx, action: SignedAction): Promise<Handle
   }
   if (balance < ctx.cfg.accountMinBalance) return { status: 400, body: { ok: false, error: "deposit first" } };
   return null;
+}
+
+function isKeyChange(kind: string): boolean {
+  return kind === "authorize-key" || kind === "set-limit";
 }
 
 /** True when a take carries its own line text. Only the signed preset is accepted. */

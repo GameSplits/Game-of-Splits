@@ -12,6 +12,7 @@ import {
   SpendBudget,
   SpendCapError,
   decideSim,
+  mayHaveBroadcast,
   type Limiter,
   type Nonces,
   type Sim,
@@ -86,6 +87,8 @@ export interface RelayResult {
     livePrice?: string;
     liveRound?: string;
   };
+  /** Set when a send may have reached the node, so the order must stay taken. */
+  maybeSent?: boolean;
 }
 
 export function freshState(pending: () => Promise<bigint>, ethPerHourWei: bigint, accountShareBps = 0n): RelayState {
@@ -145,12 +148,6 @@ function isResult(value: Sim | RelayResult): value is RelayResult {
   return "status" in value;
 }
 
-/** True for errors where the transaction may have reached the node anyway. */
-function mayHaveBroadcast(err: unknown): boolean {
-  const name = err instanceof Error ? err.name : "";
-  return name === "TimeoutError" || name === "AbortError";
-}
-
 async function sendOnceOrTwice(
   deps: RelayDeps,
   state: RelayState,
@@ -191,13 +188,16 @@ async function sendOnceOrTwice(
         if (await spend.alertDue(deps.now())) await deps.alert("relayer hourly ETH budget reached, relaying paused");
         return { status: 503, body: { ok: false, error: "relay paused" } };
       }
-      // A timeout may still have reached the node, so that reservation is kept.
-      if (mayHaveBroadcast(err)) maybeSent = true;
+      // A timeout may still have reached the node, so the reservation is kept and there is no retry under a new nonce.
+      if (mayHaveBroadcast(err)) {
+        maybeSent = true;
+        break;
+      }
       // The nonce queue refreshes from the pending count. One more attempt, then a clear error.
     }
   }
   if (held > 0n && !maybeSent) await spend.release(held, heldAt);
-  return { status: 502, body: { ok: false, error: "relay failed" } };
+  return { status: 502, body: { ok: false, error: "relay failed" }, ...(maybeSent ? { maybeSent: true } : {}) };
 }
 
 export async function submitShot(deps: RelayDeps, state: RelayState, req: ShotRequest): Promise<RelayResult> {
@@ -239,8 +239,13 @@ export async function submitShot(deps: RelayDeps, state: RelayState, req: ShotRe
     const sent = await sendOnceOrTwice(deps, state, req.calldata, req.gasCap, bumped, req.account === true);
     if (sent.status === 200) {
       // Counted only for a call that passed its checks and was sent. The in-flight guard keeps this owner serial.
-      await state.rates.allow(owner, deps.now());
-      await state.hourly.allow(owner, deps.now());
+      // The hash is already out, so a counting failure must not turn this into an error.
+      try {
+        await state.rates.allow(owner, deps.now());
+        await state.hourly.allow(owner, deps.now());
+      } catch {
+        // best effort
+      }
     }
     return sent;
   } catch {

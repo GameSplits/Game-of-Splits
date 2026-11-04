@@ -124,6 +124,23 @@ export class ResignBook {
   }
 }
 
+const MAYBE_SENT = new Set(["TimeoutError", "AbortError", "HttpRequestError"]);
+
+/**
+ * True for errors where the transaction may have reached the node anyway. viem wraps the transport error, for example
+ * TransactionExecutionError around TimeoutError, so the whole cause chain is checked.
+ */
+export function mayHaveBroadcast(err: unknown): boolean {
+  const seen = new Set<unknown>();
+  let cur: unknown = err;
+  while (cur instanceof Error && !seen.has(cur)) {
+    seen.add(cur);
+    if (MAYBE_SENT.has(cur.name)) return true;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export class NonceQueue implements Nonces {
   private tail: Promise<void> = Promise.resolve();
   private next: bigint | null = null;
@@ -142,7 +159,9 @@ export class NonceQueue implements Nonces {
         this.next = nonce + 1n;
         return out;
       } catch (err) {
-        this.next = await this.pending();
+        const chain = await this.pending();
+        // A send that may have gone out keeps its nonce, so nothing else is sent under it.
+        this.next = mayHaveBroadcast(err) && chain <= nonce ? nonce + 1n : chain;
         throw err;
       }
     });

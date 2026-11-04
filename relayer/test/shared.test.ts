@@ -45,6 +45,11 @@ class FakeKv implements Kv {
   async del(key: string) {
     this.rows.delete(key);
   }
+  async rewindNonce(key: string, nonce: number, pending: number, kept: boolean) {
+    const cur = (await this.get(key)) ?? -1;
+    if (!kept && cur === nonce + 1) await this.set(key, Math.max(pending, nonce));
+    else if (pending > cur) await this.set(key, pending);
+  }
 }
 
 test("upstashEnv reads the Vercel KV names or the Upstash names, and nothing when missing", () => {
@@ -277,4 +282,103 @@ test("live Upstash: two copies share limit, budget, nonce and used orders", { sk
   assert.equal(await u.claim("o"), true);
   assert.equal(await new SharedUsedOrders(kv, `${p}:u`, 60_000).claim("o"), false);
   for (const k of [`${p}:n`, `${p}:u:o`]) await kv.del(k);
+});
+
+test("a viem-wrapped timeout counts as maybe sent: one attempt, the reservation is kept and the order stays taken", async () => {
+  const { TimeoutError } = await import("viem");
+  const kv = new FakeKv();
+  const a = copy(kv, { nonces: [], fail: false });
+  let attempts = 0;
+  const nonces: bigint[] = [];
+  a.deps.send = async (_d, o) => {
+    attempts++;
+    nonces.push(o.nonce);
+    await o.reserve(1_000_000_000n);
+    const err = new Error("transaction execution failed", { cause: new TimeoutError({ body: {}, url: "https://rpc.example.test" }) });
+    err.name = "TransactionExecutionError";
+    throw err;
+  };
+  const body = await authBody("44");
+  const out = await handle(a, req(body, "203.0.113.1"));
+  assert.equal(out.status, 502);
+  assert.equal(attempts, 1, "no retry under a new nonce");
+  assert.ok((await (a.state.spend as SharedSpend).spentGwei(kv.now)) > 0, "reservation kept");
+  assert.equal((await handle(a, req(body, "203.0.113.2"))).body?.error, "nonce in use");
+  a.deps.send = async (_d, o) => {
+    nonces.push(o.nonce);
+    return "0xabc";
+  };
+  assert.equal((await handle(a, req(await authBody("55"), "203.0.113.3"))).status, 200);
+  assert.notEqual(nonces[1], nonces[0], "the maybe-sent nonce is not reused");
+});
+
+test("Upstash failing after the hash came back still answers 200 and keeps the order taken", async () => {
+  const kv = new FakeKv();
+  const io = { nonces: [] as bigint[], fail: false };
+  const a = copy(kv, io);
+  const incr = kv.incrTtl.bind(kv);
+  kv.incrTtl = async (key, by, ttl) => {
+    if (io.nonces.length > 0 && !key.includes(":ip")) throw new Error("upstash down");
+    return incr(key, by, ttl);
+  };
+  const body = await authBody("44");
+  const first = await handle(a, req(body, "203.0.113.1"));
+  assert.equal(first.status, 200);
+  assert.equal(first.body?.hash, "0xabc");
+  kv.incrTtl = incr;
+  const again = await handle(a, req(body, "203.0.113.2"));
+  assert.equal(again.body?.error, "nonce in use");
+  assert.equal(io.nonces.length, 1);
+});
+
+test("a failed send never rewinds the shared nonce below another copy's in-flight nonce", async () => {
+  const kv = new FakeKv();
+  const a = new SharedNonces(kv, "n", async () => 10n);
+  const b = new SharedNonces(kv, "n", async () => 10n);
+  let releaseB!: () => void;
+  const bHold = new Promise<void>((r) => (releaseB = r));
+  let aStarted!: () => void;
+  const aGot = new Promise<void>((r) => (aStarted = r));
+  const failA = a.run(async (n) => {
+    assert.equal(n, 10n);
+    await aGot;
+    throw new Error("rpc refused");
+  });
+  const inflightB = b.run(async (n) => {
+    aStarted();
+    await bHold;
+    return n;
+  });
+  await assert.rejects(failA);
+  const next = await a.run(async (n) => n);
+  releaseB();
+  const bNonce = await inflightB;
+  assert.equal(bNonce, 11n);
+  assert.notEqual(next, bNonce, "no two sends share a nonce");
+  assert.ok(next > bNonce);
+});
+
+test("a surely failed send gives its nonce back when no other copy took a later one", async () => {
+  const kv = new FakeKv();
+  const a = new SharedNonces(kv, "n", async () => 10n);
+  await assert.rejects(a.run(async () => {
+    throw new Error("rpc refused");
+  }));
+  assert.equal(await a.run(async (n) => n), 10n);
+});
+
+test("authorize and set limit signed at a future nonce are refused before any send", async () => {
+  const kv = new FakeKv();
+  const io = { nonces: [] as bigint[], fail: false };
+  const a = copy(kv, io);
+  const future = await handle(a, req(await authBody("44", 1n), "203.0.113.1"));
+  assert.equal(future.status, 400);
+  assert.equal(future.body?.error, "nonce not current");
+  assert.equal(io.nonces.length, 0);
+  a.ownerNonce = async () => {
+    throw new Error("rpc down");
+  };
+  assert.equal((await handle(a, req(await authBody("44", 0n), "203.0.113.2"))).status, 502, "fails closed when the nonce is unread");
+  a.ownerNonce = async () => 0n;
+  assert.equal((await handle(a, req(await authBody("44", 0n), "203.0.113.3"))).status, 200);
 });
