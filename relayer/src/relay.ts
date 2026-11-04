@@ -4,6 +4,7 @@ import {
   GasCapError,
   GasLimitError,
   LOW_BALANCE_WEI,
+  MemoryUsedOrders,
   NonceQueue,
   OwnerNonceGuard,
   RateLimit,
@@ -11,7 +12,11 @@ import {
   SpendBudget,
   SpendCapError,
   decideSim,
+  type Limiter,
+  type Nonces,
   type Sim,
+  type Spend,
+  type UsedOrders,
 } from "./policy.ts";
 
 export interface ShotRequest {
@@ -28,7 +33,7 @@ export interface SendOpts {
   priorityWei: bigint;
   gasCap: bigint;
   /** Reserve the worst-case cost of this send against the hourly ETH budget. False means do not send. */
-  reserve(wei: bigint): boolean;
+  reserve(wei: bigint): boolean | Promise<boolean>;
 }
 
 export interface RelayDeps {
@@ -42,16 +47,18 @@ export interface RelayDeps {
 
 export interface RelayState {
   /** Per wallet budgets. Only a call that passed its signature check and simulation and was sent is counted. */
-  rates: RateLimit;
+  rates: Limiter;
   /** 60 relayed calls an hour for each wallet. */
-  hourly: RateLimit;
+  hourly: Limiter;
   /** Per IP, counted on every request before any work, so junk is throttled without touching a wallet's budget. */
-  ips: RateLimit;
+  ips: Limiter;
   resigns: ResignBook;
-  nonces: NonceQueue;
+  nonces: Nonces;
   owners: OwnerNonceGuard;
   /** Hourly ETH the relayer may commit to sends. */
-  spend: SpendBudget;
+  spend: Spend;
+  /** Signed orders already taken in the last 10 minutes. A repeat is refused before any work. */
+  used?: UsedOrders;
 }
 
 export interface RelayResult {
@@ -75,6 +82,7 @@ export function freshState(pending: () => Promise<bigint>, ethPerHourWei: bigint
     nonces: new NonceQueue(pending),
     owners: new OwnerNonceGuard(),
     spend: new SpendBudget(ethPerHourWei),
+    used: new MemoryUsedOrders(),
   };
 }
 
@@ -119,6 +127,12 @@ function isResult(value: Sim | RelayResult): value is RelayResult {
   return "status" in value;
 }
 
+/** True for errors where the transaction may have reached the node anyway. */
+function mayHaveBroadcast(err: unknown): boolean {
+  const name = err instanceof Error ? err.name : "";
+  return name === "TimeoutError" || name === "AbortError";
+}
+
 async function sendOnceOrTwice(
   deps: RelayDeps,
   state: RelayState,
@@ -128,30 +142,48 @@ async function sendOnceOrTwice(
 ): Promise<RelayResult> {
   const priorities = bumped ? [deps.priorityWei * 2n, deps.priorityWei * 2n] : [deps.priorityWei, deps.priorityWei * 2n];
   let last = priorities[0];
+  // Both attempts share one reservation. The retry only tops it up when it needs more.
+  let held = 0n;
+  let heldAt = 0;
+  const reserve = async (wei: bigint): Promise<boolean> => {
+    if (wei <= held) return true;
+    const at = deps.now();
+    if (!(await state.spend.reserve(wei, at))) return false;
+    if (held > 0n) await state.spend.release(held, heldAt);
+    held = wei;
+    heldAt = at;
+    return true;
+  };
+  let maybeSent = false;
   for (let attempt = 0; attempt < 2; attempt++) {
     last = priorities[attempt] ?? last;
     try {
       const priorityWei = last;
-      const reserve = (wei: bigint) => state.spend.reserve(wei, deps.now());
       const hash = await state.nonces.run((nonce) => deps.send(data, { nonce, priorityWei, gasCap, reserve }));
       return { status: 200, body: { ok: true, hash } };
     } catch (err) {
+      if (err instanceof GasCapError || err instanceof GasLimitError || err instanceof SpendCapError) {
+        if (held > 0n && !maybeSent) await state.spend.release(held, heldAt);
+      }
       if (err instanceof GasCapError) return { status: 503, body: { ok: false, error: "gas price above cap" } };
       if (err instanceof GasLimitError) return { status: 400, body: { ok: false, error: "gas above cap" } };
       if (err instanceof SpendCapError) {
-        if (state.spend.alertDue(deps.now())) await deps.alert("relayer hourly ETH budget reached, relaying paused");
+        if (await state.spend.alertDue(deps.now())) await deps.alert("relayer hourly ETH budget reached, relaying paused");
         return { status: 503, body: { ok: false, error: "relay paused" } };
       }
+      // A timeout may still have reached the node, so that reservation is kept.
+      if (mayHaveBroadcast(err)) maybeSent = true;
       // The nonce queue refreshes from the pending count. One more attempt, then a clear error.
     }
   }
+  if (held > 0n && !maybeSent) await state.spend.release(held, heldAt);
   return { status: 502, body: { ok: false, error: "relay failed" } };
 }
 
 export async function submitShot(deps: RelayDeps, state: RelayState, req: ShotRequest): Promise<RelayResult> {
   const owner = req.owner.toLowerCase();
   // Look only. The wallet's budgets are counted after the call is sent, so nobody else can use them up.
-  if (state.rates.full(owner, deps.now()) || state.hourly.full(owner, deps.now())) {
+  if ((await state.rates.full(owner, deps.now())) || (await state.hourly.full(owner, deps.now()))) {
     return { status: 429, body: { ok: false, error: "rate limit" } };
   }
   if (req.replaces) {
@@ -187,8 +219,8 @@ export async function submitShot(deps: RelayDeps, state: RelayState, req: ShotRe
     const sent = await sendOnceOrTwice(deps, state, req.calldata, req.gasCap, bumped);
     if (sent.status === 200) {
       // Counted only for a call that passed its checks and was sent. The in-flight guard keeps this owner serial.
-      state.rates.allow(owner, deps.now());
-      state.hourly.allow(owner, deps.now());
+      await state.rates.allow(owner, deps.now());
+      await state.hourly.allow(owner, deps.now());
     }
     return sent;
   } catch {

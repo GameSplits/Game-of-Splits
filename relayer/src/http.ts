@@ -100,7 +100,7 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
   }
   if (!isAction(name)) return { status: 404, body: { ok: false, error: "not found" } };
   if (input.method !== "POST") return { status: 405, body: { ok: false, error: "method" } };
-  if (!ctx.state.ips.allow(clientIp(input.headers), ctx.deps.now())) {
+  if (!(await ctx.state.ips.allow(clientIp(input.headers), ctx.deps.now()))) {
     return { status: 429, body: { ok: false, error: "rate limit" } };
   }
   try {
@@ -146,7 +146,18 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
         return { status: 400, body: { ok: false, error: "balance at or below the withdrawal fee" } };
       }
     }
-    const result = await submitShot(ctx.deps, ctx.state, parsed.request);
+    const used = ctx.state.used;
+    const orderId = `${parsed.action.kind}:${parsed.action.message.owner}:${parsed.action.message.nonce}`;
+    if (used && !(await used.claim(orderId, ctx.deps.now()))) {
+      return { status: 400, body: { ok: false, error: "nonce in use" } };
+    }
+    let result: Awaited<ReturnType<typeof submitShot>> | undefined;
+    try {
+      result = await submitShot(ctx.deps, ctx.state, parsed.request);
+    } finally {
+      // Only an order that went out stays taken, so a refused one can be sent again.
+      if (used && result?.status !== 200) await used.drop(orderId);
+    }
     return { status: result.status, body: result.body };
   } catch (err) {
     if (err instanceof HttpError) return { status: err.status, body: { ok: false, error: err.message } };

@@ -19,7 +19,54 @@ export function decideSim(sim: Sim, signedMax: bigint, alreadyRetried: boolean):
   return "reject";
 }
 
-export class RateLimit {
+type MaybePromise<T> = T | Promise<T>;
+
+/** Per key request budget. The in-memory classes below and the Upstash ones in shared.ts both fit. */
+export interface Limiter {
+  full(key: string, now: number): MaybePromise<boolean>;
+  allow(key: string, now: number): MaybePromise<boolean>;
+}
+
+/** Hands out relayer account nonces one send at a time. */
+export interface Nonces {
+  run<T>(fn: (nonce: bigint) => Promise<T>): Promise<T>;
+}
+
+/** Hourly ETH budget. A release gives back a reservation whose send definitely did not go out. */
+export interface Spend {
+  reserve(wei: bigint, now: number): MaybePromise<boolean>;
+  release(wei: bigint, at: number): MaybePromise<void>;
+  alertDue(now: number): MaybePromise<boolean>;
+}
+
+/** Signed orders already taken, keyed by action, owner and order nonce. */
+export interface UsedOrders {
+  claim(id: string, now: number): MaybePromise<boolean>;
+  drop(id: string): MaybePromise<void>;
+}
+
+export class MemoryUsedOrders implements UsedOrders {
+  private readonly seen = new Map<string, number>();
+  private readonly ttlMs: number;
+
+  constructor(ttlMs = 600_000) {
+    this.ttlMs = ttlMs;
+  }
+
+  claim(id: string, now: number): boolean {
+    for (const [key, at] of this.seen) if (now - at >= this.ttlMs) this.seen.delete(key);
+    const key = id.toLowerCase();
+    if (this.seen.has(key)) return false;
+    this.seen.set(key, now);
+    return true;
+  }
+
+  drop(id: string): void {
+    this.seen.delete(id.toLowerCase());
+  }
+}
+
+export class RateLimit implements Limiter {
   private readonly hits = new Map<string, number[]>();
   private readonly limit: number;
   private readonly windowMs: number;
@@ -77,7 +124,7 @@ export class ResignBook {
   }
 }
 
-export class NonceQueue {
+export class NonceQueue implements Nonces {
   private tail: Promise<void> = Promise.resolve();
   private next: bigint | null = null;
   private readonly pending: () => Promise<bigint>;
@@ -154,7 +201,7 @@ export function gasLimitFor(estimate: bigint, cap: bigint): bigint {
 }
 
 /** ETH the relayer may commit to sends in a rolling window. Each send reserves its worst case, gas limit times max fee. */
-export class SpendBudget {
+export class SpendBudget implements Spend {
   private readonly spends: { at: number; wei: bigint }[] = [];
   private readonly limitWei: bigint;
   private readonly windowMs: number;
@@ -174,6 +221,11 @@ export class SpendBudget {
     if (this.spent(now) + wei > this.limitWei) return false;
     this.spends.push({ at: now, wei });
     return true;
+  }
+
+  release(wei: bigint, at: number): void {
+    const i = this.spends.findIndex((row) => row.at === at && row.wei === wei);
+    if (i >= 0) this.spends.splice(i, 1);
   }
 
   /** True at most once a window, so a pause raises one alert instead of one per request. */

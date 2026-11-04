@@ -13,12 +13,13 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { ERC1271_MAGIC, erc1271Abi, stashAbi } from "./abi.ts";
-import { ERC1271_CHECK_GAS, redact, type RelayerConfig } from "./config.ts";
+import { ERC1271_CHECK_GAS, TESTNET_CHAIN_ID, redact, type RelayerConfig } from "./config.ts";
 import { decodeRevert, extractRevertData } from "./decode.ts";
 import type { HandleCtx } from "./http.ts";
 import { pingHealthcheck } from "./ping.ts";
 import { GasCapError, SpendCapError, gasLimitFor } from "./policy.ts";
-import { freshState, type RelayDeps, type SendOpts } from "./relay.ts";
+import { freshState, type RelayDeps, type RelayState, type SendOpts } from "./relay.ts";
+import { SharedNonces, SharedRateLimit, SharedSpend, SharedUsedOrders, upstashEnv, upstashKv, type Kv } from "./shared.ts";
 import type { Sim } from "./policy.ts";
 
 export function simulationFromError(err: unknown): Sim {
@@ -42,11 +43,44 @@ export async function sendCapped(io: SendIo, maxFeeWei: bigint, data: Hex, opts:
   const maxFeePerGas = base + opts.priorityWei;
   if (maxFeePerGas > maxFeeWei) throw new GasCapError();
   const gas = gasLimitFor(await io.estimate(data), opts.gasCap);
-  if (!opts.reserve(gas * maxFeePerGas)) throw new SpendCapError();
+  if (!(await opts.reserve(gas * maxFeePerGas))) throw new SpendCapError();
   return io.broadcast({ data, nonce: opts.nonce, gas, maxFeePerGas, maxPriorityFeePerGas: opts.priorityWei });
 }
 
-export function createRuntime(cfg: RelayerConfig): HandleCtx {
+/** Relay state in Upstash, keyed by chain and relayer address so testnet and any later mainnet copy never mix. */
+export function sharedState(kv: Kv, chainId: number, relayer: string, pending: () => Promise<bigint>, ethPerHourWei: bigint): RelayState {
+  const p = `gos-relayer:${chainId}:${relayer.toLowerCase()}`;
+  const local = freshState(pending, ethPerHourWei);
+  return {
+    ...local,
+    rates: new SharedRateLimit(kv, `${p}:rate`, 30, 60_000),
+    hourly: new SharedRateLimit(kv, `${p}:hourly`, 60, 3_600_000),
+    ips: new SharedRateLimit(kv, `${p}:ip`, 60, 60_000),
+    nonces: new SharedNonces(kv, `${p}:nonce`, pending),
+    spend: new SharedSpend(kv, `${p}:spend`, ethPerHourWei),
+    used: new SharedUsedOrders(kv, `${p}:used`),
+  };
+}
+
+/** Upstash state when its env is set. Otherwise memory with a warning, except a production mainnet config, which refuses to start. */
+export function chooseState(
+  env: NodeJS.ProcessEnv,
+  chainId: number,
+  relayer: string,
+  pending: () => Promise<bigint>,
+  ethPerHourWei: bigint,
+  log: (message: string) => void = console.warn,
+): RelayState {
+  const up = upstashEnv(env);
+  if (up) return sharedState(upstashKv(up), chainId, relayer, pending, ethPerHourWei);
+  if (env.NODE_ENV === "production" && chainId !== TESTNET_CHAIN_ID) {
+    throw new Error("shared state required: set KV_REST_API_URL and KV_REST_API_TOKEN");
+  }
+  log("WARNING relayer state is in memory only. Limits, ETH budget, nonces and used orders are per process. Set KV_REST_API_URL and KV_REST_API_TOKEN.");
+  return freshState(pending, ethPerHourWei);
+}
+
+export function createRuntime(cfg: RelayerConfig, env: NodeJS.ProcessEnv = process.env): HandleCtx {
   const account = privateKeyToAccount(cfg.key);
   const chain = defineChain({
     id: cfg.chainId,
@@ -103,7 +137,10 @@ export function createRuntime(cfg: RelayerConfig): HandleCtx {
     cfg,
     relayer: account.address,
     deps,
-    state: freshState(
+    state: chooseState(
+      env,
+      cfg.chainId,
+      account.address,
       async () => BigInt(await pub.getTransactionCount({ address: account.address, blockTag: "pending" })),
       cfg.ethPerHourWei,
     ),
