@@ -91,8 +91,8 @@ export const NOT_SENT_HEADER = "x-gos-relay";
  * Marks a refusal that happened before any send. Every refusal here is decided before the broadcast except
  * "relay failed", which follows send attempts, and a maybe-sent 202. Those never carry the marker.
  */
-export function markNotSent(out: HandleOutput & { maybeSent?: boolean }): HandleOutput {
-  if (out.status < 400 || out.maybeSent || !out.body || out.body.error === "relay failed") return { status: out.status, body: out.body };
+export function markNotSent(out: HandleOutput & { maybeSent?: boolean; tried?: boolean }): HandleOutput {
+  if (out.status < 400 || out.maybeSent || out.tried || !out.body || out.body.error === "relay failed") return { status: out.status, body: out.body };
   return { status: out.status, body: { ...out.body, sent: false } };
 }
 
@@ -105,7 +105,7 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
   return markNotSent(await route(ctx, input));
 }
 
-async function route(ctx: HandleCtx, input: HandleInput): Promise<HandleOutput & { maybeSent?: boolean }> {
+async function route(ctx: HandleCtx, input: HandleInput): Promise<HandleOutput & { maybeSent?: boolean; tried?: boolean }> {
   if (input.method === "OPTIONS") return { status: 204, body: null };
   const name = input.route && input.route.length > 0 ? input.route : barePath(input.path).replace(/^\//, "");
   if (name === "health") {
@@ -185,9 +185,10 @@ async function route(ctx: HandleCtx, input: HandleInput): Promise<HandleOutput &
       result = await submitShot(ctx.deps, ctx.state, parsed.request);
     } finally {
       // Only an order that went out, or may have, stays taken, so a refused one can be sent again.
-      if (used && result?.status !== 200 && !result?.maybeSent) await used.drop(orderId);
+      // Once a raw send was tried it stays taken until it expires, even when the node seemed to refuse it.
+      if (used && result?.status !== 200 && !result?.maybeSent && !result?.tried) await used.drop(orderId);
     }
-    return { status: result.status, body: result.body, ...(result.maybeSent ? { maybeSent: true } : {}) };
+    return { status: result.status, body: result.body, ...(result.maybeSent ? { maybeSent: true } : {}), ...(result.tried ? { tried: true } : {}) };
   } catch (err) {
     if (err instanceof HttpError) return { status: err.status, body: { ok: false, error: err.message } };
     return { status: 400, body: { ok: false, error: "bad request" } };

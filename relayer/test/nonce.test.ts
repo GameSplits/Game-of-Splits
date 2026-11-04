@@ -550,16 +550,85 @@ test("B-1r with real viem: a raw-send 'nonce too high' from the node heals the g
   }
 });
 
-test("H-1r: a clear refusal is freed even when the hash lookup fails, and a -32005 limit is a refusal", async () => {
-  const limit = txErr(Object.assign(new Error("rate limit exceeded"), { name: "RpcRequestError", code: -32005 }));
-  for (const err of [rpcErr("insufficient funds for gas * price + value"), limit]) {
-    let fail = true;
-    const a = copy(new FakeKv(), { pending: 0n, mined: new Set() }, {
+test("H-1r: a clear refusal is retried even when the hash lookup fails, but a -32005 limit on the send is maybe sent", async () => {
+  let fail = true;
+  const a = copy(new FakeKv(), { pending: 0n, mined: new Set() }, {
+    signed: true,
+    known: async () => { throw new Error("lookup down"); },
+    broadcast: async () => { if (fail) { fail = false; throw rpcErr("insufficient funds for gas * price + value"); } },
+  });
+  assert.equal((await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"))).status, 200);
+  assert.deepEqual(a.sends, [0n, 0n]);
+  const limits = [
+    txErr(Object.assign(new Error("rate limit exceeded"), { name: "RpcRequestError", code: -32005 })),
+    rpcErr("rate limit reached for this key"),
+    rpcErr("request limit exceeded"),
+  ];
+  for (const [i, err] of limits.entries()) {
+    const b = copy(new FakeKv(), { pending: 0n, mined: new Set() }, {
       signed: true,
       known: async () => { throw new Error("lookup down"); },
-      broadcast: async () => { if (fail) { fail = false; throw err; } },
+      broadcast: async () => { throw err; },
     });
-    assert.equal((await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"))).status, 200);
+    const out = await handle(b.ctx, req("authorize-key", await authBody(0), `198.51.100.${240 + i}`));
+    assert.deepEqual([out.status, out.body?.maybeSent, b.sends], [202, true, [0n]]);
+  }
+});
+
+test("D-1r: once a raw send was tried, a cap or other failure on the retry is an unmarked 502 and the order stays taken", async () => {
+  const marked = async (out: Awaited<ReturnType<typeof handle>>) => {
+    const res = toResponse(out, { "access-control-expose-headers": "x-gos-relay" });
+    return [out.status, out.body?.error, out.body?.sent, res.headers.get(NOT_SENT_HEADER)];
+  };
+  // A forwarded send answered with a limit while the lookup lags: maybe sent, no retry, no marker.
+  const lag = copy(new FakeKv(), { pending: 0n, mined: new Set() }, {
+    signed: true,
+    known: async () => false,
+    broadcast: async () => { throw txErr(Object.assign(new Error("rate limit exceeded"), { name: "RpcRequestError", code: -32005 })); },
+  });
+  const body = await authBody(0);
+  const first = await handle(lag.ctx, req("authorize-key", body, "198.51.100.230"));
+  assert.deepEqual([first.status, first.body?.sent, lag.sends], [202, undefined, [0n]]);
+  // A refusal on attempt 1, then the gas price, the gas limit or the budget on attempt 2.
+  const second: Partial<Faults>[] = [{ baseFee: async () => 10n ** 15n }, { estimate: async () => 10n ** 15n }];
+  for (const [i, late] of second.entries()) {
+    let tries = 0;
+    const f: Faults = {
+      signed: true,
+      known: async () => false,
+      broadcast: async () => { throw rpcErr("insufficient funds for gas * price + value"); },
+      baseFee: async () => (tries++ === 0 ? 20_000_000n : late.baseFee ? late.baseFee() : 20_000_000n),
+    };
+    if (late.estimate) { let e = 0; f.estimate = async () => (e++ === 0 ? 80_000n : late.estimate!()); }
+    const c = copy(new FakeKv(), { pending: 0n, mined: new Set() }, f);
+    const b = await authBody(0);
+    assert.deepEqual(await marked(await handle(c.ctx, req("authorize-key", b, `198.51.100.${231 + i}`))), [502, "relay failed", undefined, null]);
+    assert.deepEqual(c.sends, [0n]);
+    // Held: the same order cannot go again while the first send settles.
+    assert.equal((await handle(c.ctx, req("authorize-key", b, `198.51.100.${235 + i}`))).status, 400);
+  }
+  // Nonce too high on both attempts still heals the gap, but the reply is not marked once a send was tried.
+  const high = copy(new FakeKv(), { pending: 0n, mined: new Set() }, {
+    signed: true,
+    known: async () => false,
+    broadcast: async () => { throw rpcErr("nonce too high"); },
+  });
+  assert.deepEqual(await marked(await handle(high.ctx, req("authorize-key", await authBody(0), "198.51.100.238"))), [502, "relay failed", undefined, null]);
+});
+
+test("B-1r: 'nonce too high' carried only in error.data, as a string or a nested message, still heals the gap", async () => {
+  const datas: unknown[] = ["nonce too high: next nonce 0", { message: "nonce too high" }];
+  for (const [i, data] of datas.entries()) {
+    const chain = { pending: 0n, mined: new Set<string>() };
+    let first = true;
+    const a = copy(new FakeKv(), chain, {
+      signed: true,
+      broadcast: async () => {
+        if (first) { first = false; throw txErr(Object.assign(new Error("Internal error"), { name: "RpcRequestError", code: -32000, data })); }
+      },
+    });
+    const out = await handle(a.ctx, req("authorize-key", await authBody(0), `198.51.100.${220 + i}`));
+    assert.equal(out.status, 200);
     assert.deepEqual(a.sends, [0n, 0n]);
   }
 });

@@ -177,7 +177,7 @@ test("two copies share the hourly budget: once one copy fills it the other pause
   assert.equal(second.body?.error, "relay paused");
 });
 
-test("a refused broadcast refunds the reservation and frees the order for a retry", async () => {
+test("a refused broadcast refunds the reservation but keeps the order taken, since a raw send was tried", async () => {
   const kv = new FakeKv();
   const io = { nonces: [] as bigint[], fail: true };
   const a = copy(kv, io);
@@ -185,7 +185,7 @@ test("a refused broadcast refunds the reservation and frees the order for a retr
   assert.equal((await handle(a, req(body, "203.0.113.1"))).status, 502);
   assert.equal(await (a.state.spend as SharedSpend).spentGwei(kv.now), 0);
   io.fail = false;
-  assert.equal((await handle(a, req(body, "203.0.113.1"))).status, 200);
+  assert.equal((await handle(a, req(body, "203.0.113.1"))).status, 400);
 });
 
 test("a timed out broadcast keeps one reservation for both attempts", async () => {

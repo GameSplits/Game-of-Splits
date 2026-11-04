@@ -169,18 +169,21 @@ const REJECTION_NAMES = new Set([
   "IntrinsicGasTooHighError",
   "TransactionTypeNotSupportedError",
   "InvalidChainIdError",
-  "LimitExceededRpcError",
 ]);
-/** JSON-RPC codes a node uses for a request it turned away without taking it. -32005 is a provider rate or request limit. */
-const REJECTION_CODES = new Set([-32005]);
+// Rate and request limits (-32005, "rate limit") are left out: a retrying gateway can answer with one after it forwarded the send.
 const REJECTION_TEXT =
-  /nonce too (low|high)|nonce has already been used|insufficient funds|intrinsic gas too (low|high)|gas limit reached|fee cap (too low|less than)|max fee per gas less than|underpriced|fee too low|tip (higher|above)|invalid (chain ?id|signature|sender|transaction)|chain ?id mismatch|transaction type not supported|exceeds block gas limit|limit exceeded|rate limit/i;
+  /nonce too (low|high)|nonce has already been used|insufficient funds|intrinsic gas too (low|high)|gas limit reached|fee cap (too low|less than)|max fee per gas less than|underpriced|fee too low|tip (higher|above)|invalid (chain ?id|signature|sender|transaction)|chain ?id mismatch|transaction type not supported|exceeds block gas limit/i;
 
-/** A node's clear refusal of the transaction itself, sent before it took it, so it cannot have gone out. */
+/** A node's clear refusal of the transaction itself, sent before it took it, so it cannot have gone out. Limits never count here. */
 export function knownRejection(err: unknown): boolean {
-  return causes(err).some(
-    (e) => REJECTION_NAMES.has(e.name) || REJECTION_CODES.has((e as { code?: unknown }).code as number) || REJECTION_TEXT.test(String((e as { details?: unknown }).details ?? "")) || REJECTION_TEXT.test(e.message),
-  );
+  return causes(err).some((e) => REJECTION_NAMES.has(e.name) || textOf(e).some((t) => REJECTION_TEXT.test(t)));
+}
+
+/** The texts a node error can carry: the message, viem's details, and JSON-RPC data as a string or a nested message. */
+function textOf(e: Error): string[] {
+  const data = (e as { data?: unknown }).data;
+  const nested = data && typeof data === "object" ? (data as { message?: unknown }).message : undefined;
+  return [e.message, String((e as { details?: unknown }).details ?? ""), typeof data === "string" ? data : "", typeof nested === "string" ? nested : ""];
 }
 
 /** A broadcast error that shows the request never reached a node that could accept it: a refused connection or an HTTP 4xx. */
@@ -223,7 +226,7 @@ export function isNonceLow(err: unknown): boolean {
 
 /** True when any error in the chain has the name, or its message or details match. sendRawTransaction does not map node errors, so the raw text counts. */
 function matches(err: unknown, name: string, text: RegExp): boolean {
-  return causes(err).some((e) => e.name === name || text.test(e.message) || text.test(String((e as { details?: unknown }).details ?? "")));
+  return causes(err).some((e) => e.name === name || textOf(e).some((t) => text.test(t)));
 }
 
 export class NonceQueue implements Nonces {

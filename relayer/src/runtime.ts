@@ -57,6 +57,7 @@ export async function sendCapped(io: SendIo, maxFeeWei: bigint, data: Hex, opts:
   if (!(await opts.reserve(gas * maxFeePerGas))) throw new SpendCapError();
   const tx: SendTx = { data, nonce: opts.nonce, gas, maxFeePerGas, maxPriorityFeePerGas: opts.priorityWei };
   const signed = io.sign ? await io.sign(tx) : undefined;
+  opts.broadcasting?.();
   try {
     return await io.broadcast(tx, signed?.raw);
   } catch (err) {

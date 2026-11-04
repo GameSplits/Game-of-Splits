@@ -38,6 +38,8 @@ export interface SendOpts {
   gasCap: bigint;
   /** Reserve the worst-case cost of this send against the hourly ETH budget. False means do not send. */
   reserve(wei: bigint): boolean | Promise<boolean>;
+  /** Called just before the raw send goes out. */
+  broadcasting?(): void;
 }
 
 export interface RelayDeps {
@@ -93,6 +95,8 @@ export interface RelayResult {
   };
   /** Set when a send may have reached the node, so the order must stay taken. */
   maybeSent?: boolean;
+  /** Set once a raw send was tried in this request. Such a result is never marked not sent, and the order stays taken. */
+  tried?: boolean;
 }
 
 export function freshState(pending: () => Promise<bigint>, ethPerHourWei: bigint, accountShareBps = 0n): RelayState {
@@ -177,15 +181,22 @@ async function sendOnceOrTwice(
   };
   let maybeSent = false;
   let maybeHash: string | undefined;
+  // A send the node seemed to refuse can still have been forwarded, so once one was tried nothing here says "not sent".
+  let tried = false;
+  const failed = (): RelayResult => ({ status: 502, body: { ok: false, error: "relay failed" }, tried: true });
   for (let attempt = 0; attempt < 2; attempt++) {
     last = priorities[attempt] ?? last;
     try {
       const priorityWei = last;
-      const hash = await state.nonces.run((nonce) => deps.send(data, { nonce, priorityWei, gasCap, reserve }));
+      const hash = await state.nonces.run((nonce) => deps.send(data, { nonce, priorityWei, gasCap, reserve, broadcasting: () => void (tried = true) }));
       return { status: 200, body: { ok: true, hash } };
     } catch (err) {
       if (err instanceof GasCapError || err instanceof GasLimitError || err instanceof SpendCapError) {
         if (held > 0n && !maybeSent) await spend.release(held, heldAt);
+      }
+      if ((err instanceof GasCapError || err instanceof GasLimitError || err instanceof SpendCapError) && tried) {
+        if (err instanceof SpendCapError && (await spend.alertDue(deps.now()))) await deps.alert("relayer hourly ETH budget reached, relaying paused");
+        return failed();
       }
       if (err instanceof GasCapError) return { status: 503, body: { ok: false, error: "gas price above cap" } };
       if (err instanceof GasLimitError) return { status: 400, body: { ok: false, error: "gas above cap" } };
@@ -207,6 +218,7 @@ async function sendOnceOrTwice(
   if (maybeSent) {
     return { status: 202, body: { ok: false, pending: true, maybeSent: true, error: "relay pending", ...(maybeHash ? { hash: maybeHash } : {}) }, maybeSent: true };
   }
+  if (tried) return failed();
   return { status: 502, body: { ok: false, error: "relay failed" } };
 }
 
