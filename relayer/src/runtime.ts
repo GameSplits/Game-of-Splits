@@ -20,7 +20,7 @@ import { ERC1271_CHECK_GAS, TESTNET_CHAIN_ID, redact, type RelayerConfig } from 
 import { decodeRevert, extractRevertData } from "./decode.ts";
 import type { HandleCtx } from "./http.ts";
 import { pingHealthcheck } from "./ping.ts";
-import { GasCapError, MaybeSentError, SpendCapError, broadcastAmbiguous, gasLimitFor, neverReached } from "./policy.ts";
+import { GasCapError, MaybeSentError, SpendCapError, broadcastAmbiguous, gasLimitFor, knownRejection, neverReached } from "./policy.ts";
 import { REVOKES_PER_HOUR, freshState, splitBudget, type RelayDeps, type RelayState, type SendOpts } from "./relay.ts";
 import { SharedNonces, SharedRateLimit, SharedSpend, SharedUsedOrders, upstashEnv, upstashKv, type Kv } from "./shared.ts";
 import type { Sim } from "./policy.ts";
@@ -70,6 +70,8 @@ export async function sendCapped(io: SendIo, maxFeeWei: bigint, data: Hex, opts:
         throw new MaybeSentError(err, signed.hash);
       }
       if (seen) return signed.hash;
+      // Not found may only mean the read node lags. Only a known refusal proves it did not go out.
+      if (!neverReached(err) && !knownRejection(err)) throw new MaybeSentError(err, signed.hash);
     }
     throw err;
   }

@@ -157,6 +157,29 @@ export function maybeSentHash(err: unknown): `0x${string}` | undefined {
   return found?.hash;
 }
 
+const REJECTION_NAMES = new Set([
+  "NonceTooHighError",
+  "NonceTooLowError",
+  "NonceMaxValueError",
+  "InsufficientFundsError",
+  "FeeCapTooLowError",
+  "FeeCapTooHighError",
+  "TipAboveFeeCapError",
+  "IntrinsicGasTooLowError",
+  "IntrinsicGasTooHighError",
+  "TransactionTypeNotSupportedError",
+  "InvalidChainIdError",
+]);
+const REJECTION_TEXT =
+  /nonce too (low|high)|nonce has already been used|insufficient funds|intrinsic gas too (low|high)|gas limit reached|fee cap (too low|less than)|max fee per gas less than|underpriced|fee too low|tip (higher|above)|invalid (chain ?id|signature|sender|transaction)|chain ?id mismatch|transaction type not supported|exceeds block gas limit/i;
+
+/** A node's clear refusal of the transaction itself, sent before it took it, so it cannot have gone out. */
+export function knownRejection(err: unknown): boolean {
+  return causes(err).some(
+    (e) => REJECTION_NAMES.has(e.name) || REJECTION_TEXT.test(String((e as { details?: unknown }).details ?? "")) || REJECTION_TEXT.test(e.message),
+  );
+}
+
 /** A broadcast error that shows the request never reached a node that could accept it: a refused connection or an HTTP 4xx. */
 export function neverReached(err: unknown): boolean {
   const chain = causes(err);

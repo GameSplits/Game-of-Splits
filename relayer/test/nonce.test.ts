@@ -351,13 +351,51 @@ test("C-2: a clear JSON-RPC error after the node took the send is checked by has
   }
 });
 
-test("C-2: a clear error whose hash the node does not know is retried at the same nonce", async () => {
+test("C-2r: a JSON-RPC error whose hash the read node does not know yet is maybe sent, with one send and no retry", async () => {
+  // The auditor's residuals A to C: the node took the send, the lookup lags. A retry could mine the order twice or end in 502.
+  for (const msg of ["already known", "request timed out", "internal error"]) {
+    const kv = new FakeKv();
+    const chain: Chain = { pending: 0n, mined: new Set() };
+    let fail = true;
+    const a = copy(kv, chain, { signed: true, known: async () => false, after: () => (fail ? ((fail = false), rpcErr(msg)) : undefined) });
+    const out = await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"));
+    assert.deepEqual([out.status, out.body?.maybeSent, out.body?.hash], [202, true, hashFor(0n)], msg);
+    assert.deepEqual(a.sends, [0n], msg);
+    assert.equal((await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"))).body?.error, "nonce in use", msg);
+    // The next order goes out at the next nonce, so nothing is mined twice.
+    assert.equal((await handle(a.ctx, req("authorize-key", await authBody(1), "198.51.100.251"))).status, 200, msg);
+    assert.deepEqual(a.sends, [0n, 1n], msg);
+  }
+});
+
+test("C-2r: a known refusal with an unknown hash stays a sure failure and is retried, and the nonce gap still heals", async () => {
+  const refusals = [
+    rpcErr("insufficient funds for gas * price + value"),
+    rpcErr("max fee per gas less than block base fee"),
+    rpcErr("intrinsic gas too low"),
+    rpcErr("invalid sender"),
+    rpcErr("transaction underpriced"),
+  ];
+  for (const err of refusals) {
+    const chain: Chain = { pending: 0n, mined: new Set() };
+    let fail = true;
+    const a = copy(new FakeKv(), chain, { signed: true, broadcast: async () => { if (fail) { fail = false; throw err; } } });
+    assert.equal((await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"))).status, 200, err.cause && String((err.cause as Error).message));
+    assert.deepEqual(a.sends, [0n, 0n]);
+  }
+  // B-1 in signed mode: the counter is ahead of the chain, the node says too high, the same request resets and fills the gap.
   const kv = new FakeKv();
   const chain: Chain = { pending: 0n, mined: new Set() };
-  let fail = true;
-  const a = copy(kv, chain, { signed: true, broadcast: async () => { if (fail) { fail = false; throw rpcErr("already known"); } } });
+  await kv.set(NKEY, "1");
+  const a = copy(kv, chain, { signed: true });
   assert.equal((await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"))).status, 200);
-  assert.deepEqual(a.sends, [0n, 0n]);
+  assert.deepEqual(a.sends, [1n, 0n]);
+  assert.equal((await handle(a.ctx, req("authorize-key", await authBody(1), "198.51.100.251"))).status, 200);
+  assert.deepEqual(a.sends, [1n, 0n, 1n]);
+  // Nonce too low (another copy used it) also stays sure and moves on.
+  const low = copy(new FakeKv(), { pending: 3n, mined: new Set() }, { signed: true });
+  assert.equal((await handle(low.ctx, req("authorize-key", await authBody(2), "198.51.100.252"))).status, 200);
+  assert.equal(low.sends.at(-1), 3n);
 });
 
 test("C-2: when the hash lookup fails after a JSON-RPC error the send counts as maybe sent, but a 429 or refused send stays a sure failure", async () => {
@@ -399,6 +437,7 @@ test("C-1: a maybe-sent relay answers 202 with maybeSent and the signed hash in 
 test("C-2 with real viem: the runtime signs locally, and a JSON-RPC timeout on a send the node holds returns the node's hash", async () => {
   const seen = new Set<string>();
   let lookupDown = false;
+  let refuse = false;
   const s = http.createServer((q, res) => {
     let d = "";
     q.on("data", (c) => (d += c));
@@ -410,6 +449,7 @@ test("C-2 with real viem: the runtime signs locally, and a JSON-RPC timeout on a
       if (b.method === "eth_estimateGas") return reply({ result: "0x5208" });
       if (b.method === "eth_sendRawTransaction") {
         const raw = b.params[0] as Hex;
+        if (refuse) return reply({ error: { code: -32000, message: "insufficient funds for gas * price + value" } });
         if (raw.length > 4) seen.add(keccak256(raw));
         return reply({ error: { code: -32603, message: "request timed out" } });
       }
@@ -428,10 +468,16 @@ test("C-2 with real viem: the runtime signs locally, and a JSON-RPC timeout on a
     const t = transport(u, { retryCount: 0, timeout: 2_000 });
     const io = chainSendIo(createPublicClient({ chain, transport: t }), createWalletClient({ account, chain, transport: t }), account, 46630, TESTNET_STASH);
     const opts = { nonce: 3n, priorityWei: 1n, gasCap: 900_000n, reserve: async () => true };
-    // The node has not got it: a sure failure, so the caller may retry.
+    // Not found after a JSON-RPC timeout proves nothing, so it is maybe sent.
+    const unknown = await sendCapped(io, 10n ** 12n, "0x01", opts).then(() => null, (e: unknown) => e);
+    assert.equal(mayHaveBroadcast(unknown), true);
+    const hash = [...seen][0] as Hex;
+    assert.equal((unknown as { cause?: { hash?: string } }).cause?.hash ?? (unknown as { hash?: string }).hash, hash);
+    // A known refusal from the node is a sure failure.
+    refuse = true;
     const sure = await sendCapped(io, 10n ** 12n, "0x01", opts).then(() => null, (e: unknown) => e);
     assert.equal(mayHaveBroadcast(sure), false);
-    const hash = [...seen][0] as Hex;
+    refuse = false;
     // The node has it: counted as sent with the locally computed hash, which matches what the node saw.
     const known = { ...io, known: async (h: Hex) => h === hash };
     assert.equal(await sendCapped(known, 10n ** 12n, "0x01", opts), hash);
