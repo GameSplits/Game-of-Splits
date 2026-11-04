@@ -28,6 +28,10 @@ export interface RelayerConfig {
   ethPerHourWei: bigint;
   /** Lowercase code hashes of ERC-1271 wallets whose non-65-byte signatures are checked. Empty means none are accepted. */
   erc1271CodeHashes: ReadonlySet<string>;
+  /** Least Stash balance, in USDG units (6 decimals), for a relayed authorize or set limit. A revoke is gated in http.ts. */
+  accountMinBalance: bigint;
+  /** Share of the hourly ETH budget, in basis points, kept for account actions. Plays get the rest, so account actions never pause plays. */
+  accountShareBps: bigint;
 }
 
 /** Highest relayed shoot or take on testnet 46630 used 557,499 gas, and the highest take 489,172. */
@@ -35,6 +39,16 @@ export const DEFAULT_GAS_CAP_PLAY = 900_000n;
 /** Highest relayed withdraw, authorizeKey or revokeKey on testnet 46630 used 79,548 gas. The Stash unit tests peak at 107,509 (authorizeKey) and 52,361 (setLimit). */
 export const DEFAULT_GAS_CAP_ACCOUNT = 250_000n;
 export const DEFAULT_ETH_PER_HOUR = "0.02";
+/** 1 USDG. */
+export const DEFAULT_ACCOUNT_MIN_BALANCE = 1_000_000n;
+export const DEFAULT_ACCOUNT_SHARE = "0.25";
+
+function accountShare(raw: string): bigint {
+  if (!/^0?\.[0-9]{1,4}$/.test(raw)) throw new Error("RELAY_ACCOUNT_BUDGET_SHARE must be a fraction between 0 and 1");
+  const bps = BigInt((raw.split(".")[1] + "0000").slice(0, 4));
+  if (bps <= 0n || bps >= 10_000n) throw new Error("RELAY_ACCOUNT_BUDGET_SHARE must be a fraction between 0 and 1");
+  return bps;
+}
 /** Gas allowed for one off-chain ERC-1271 check of an allowlisted wallet. */
 export const ERC1271_CHECK_GAS = 100_000n;
 
@@ -78,6 +92,12 @@ function need(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name];
   if (value === undefined || value === "") throw new Error(`missing env ${name}`);
   return value;
+}
+
+function minBalance(raw: string): bigint {
+  if (!raw) return DEFAULT_ACCOUNT_MIN_BALANCE;
+  if (!/^[0-9]+$/.test(raw)) throw new Error("RELAY_ACCOUNT_MIN_BALANCE must be whole USDG units");
+  return BigInt(raw);
 }
 
 /** Read the signing key from `RELAYER_KEY` only. The value is never copied into the error text. */
@@ -125,6 +145,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): RelayerConfig {
     gasCapAccount: gasCap(env, "RELAY_GAS_CAP_ACCOUNT", DEFAULT_GAS_CAP_ACCOUNT),
     ethPerHourWei: ethToWei((env.RELAY_ETH_PER_HOUR ?? "").trim() || DEFAULT_ETH_PER_HOUR, "RELAY_ETH_PER_HOUR"),
     erc1271CodeHashes: codeHashes(env.ERC1271_CODEHASHES ?? ""),
+    accountMinBalance: minBalance((env.RELAY_ACCOUNT_MIN_BALANCE ?? "").trim()),
+    accountShareBps: accountShare((env.RELAY_ACCOUNT_BUDGET_SHARE ?? "").trim() || DEFAULT_ACCOUNT_SHARE),
   };
 }
 

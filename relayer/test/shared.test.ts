@@ -165,7 +165,7 @@ function copy(kv: Kv, io: { nonces: bigint[]; fail: boolean; timeout?: boolean }
     },
     state: sharedState(kv, 46630, session.address, async () => 3n, budgetWei),
     sessionKey: async () => session.address,
-    stashBalance: async () => 0n,
+    stashBalance: async () => 5_000_000n,
     ownerNonce: async () => 0n,
   };
 }

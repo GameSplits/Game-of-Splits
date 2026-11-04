@@ -183,6 +183,7 @@ export function parseAction(kind: SignedAction["kind"], raw: string, cfg: Relaye
       replaces,
       calldata: encode(action),
       gasCap: kind === "shoot" || kind === "take" ? cfg.gasCapPlay : cfg.gasCapAccount,
+      account: kind === "authorize-key" || kind === "set-limit" || kind === "revoke-key",
     },
   };
 }

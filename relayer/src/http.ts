@@ -146,6 +146,8 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
         return { status: 400, body: { ok: false, error: "balance at or below the withdrawal fee" } };
       }
     }
+    const gate = await accountGate(ctx, parsed.action);
+    if (gate) return gate;
     const used = ctx.state.used;
     const orderId = `${parsed.action.kind}:${parsed.action.message.owner}:${parsed.action.message.nonce}`;
     if (used && !(await used.claim(orderId, ctx.deps.now()))) {
@@ -163,6 +165,39 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
     if (err instanceof HttpError) return { status: err.status, body: { ok: false, error: err.message } };
     return { status: 400, body: { ok: false, error: "bad request" } };
   }
+}
+
+/**
+ * Authorize and set limit need at least RELAY_ACCOUNT_MIN_BALANCE in the Stash, so empty wallets cannot spend relayer gas.
+ * A revoke is always allowed while a key is live, so an owner can always cut off a key, and has its own per-owner budget.
+ * A revoke with no live key needs the same balance as the others.
+ */
+async function accountGate(ctx: HandleCtx, action: SignedAction): Promise<HandleOutput | null> {
+  if (action.kind !== "authorize-key" && action.kind !== "set-limit" && action.kind !== "revoke-key") return null;
+  const owner = action.message.owner;
+  if (action.kind === "revoke-key") {
+    if (ctx.state.revokes && (await ctx.state.revokes.full(owner.toLowerCase(), ctx.deps.now()))) {
+      return { status: 429, body: { ok: false, error: "rate limit" } };
+    }
+    let live = false;
+    try {
+      live = getAddress(await ctx.sessionKey(owner)).toLowerCase() !== ZERO_ADDRESS;
+    } catch {
+      live = false;
+    }
+    if (live) {
+      if (ctx.state.revokes) await ctx.state.revokes.allow(owner.toLowerCase(), ctx.deps.now());
+      return null;
+    }
+  }
+  let balance: bigint;
+  try {
+    balance = await ctx.stashBalance(owner);
+  } catch {
+    return { status: 502, body: { ok: false, error: "balance unavailable" } };
+  }
+  if (balance < ctx.cfg.accountMinBalance) return { status: 400, body: { ok: false, error: "deposit first" } };
+  return null;
 }
 
 /** True when a take carries its own line text. Only the signed preset is accepted. */

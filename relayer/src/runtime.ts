@@ -18,7 +18,7 @@ import { decodeRevert, extractRevertData } from "./decode.ts";
 import type { HandleCtx } from "./http.ts";
 import { pingHealthcheck } from "./ping.ts";
 import { GasCapError, SpendCapError, gasLimitFor } from "./policy.ts";
-import { freshState, type RelayDeps, type RelayState, type SendOpts } from "./relay.ts";
+import { REVOKES_PER_HOUR, freshState, splitBudget, type RelayDeps, type RelayState, type SendOpts } from "./relay.ts";
 import { SharedNonces, SharedRateLimit, SharedSpend, SharedUsedOrders, upstashEnv, upstashKv, type Kv } from "./shared.ts";
 import type { Sim } from "./policy.ts";
 
@@ -48,17 +48,27 @@ export async function sendCapped(io: SendIo, maxFeeWei: bigint, data: Hex, opts:
 }
 
 /** Relay state in Upstash, keyed by chain and relayer address so testnet and any later mainnet copy never mix. */
-export function sharedState(kv: Kv, chainId: number, relayer: string, pending: () => Promise<bigint>, ethPerHourWei: bigint): RelayState {
+export function sharedState(
+  kv: Kv,
+  chainId: number,
+  relayer: string,
+  pending: () => Promise<bigint>,
+  ethPerHourWei: bigint,
+  accountShareBps = 0n,
+): RelayState {
   const p = `gos-relayer:${chainId}:${relayer.toLowerCase()}`;
-  const local = freshState(pending, ethPerHourWei);
+  const local = freshState(pending, ethPerHourWei, accountShareBps);
+  const split = splitBudget(ethPerHourWei, accountShareBps);
   return {
     ...local,
     rates: new SharedRateLimit(kv, `${p}:rate`, 30, 60_000),
     hourly: new SharedRateLimit(kv, `${p}:hourly`, 60, 3_600_000),
     ips: new SharedRateLimit(kv, `${p}:ip`, 60, 60_000),
     nonces: new SharedNonces(kv, `${p}:nonce`, pending),
-    spend: new SharedSpend(kv, `${p}:spend`, ethPerHourWei),
+    spend: new SharedSpend(kv, `${p}:spend`, split.play),
     used: new SharedUsedOrders(kv, `${p}:used`),
+    revokes: new SharedRateLimit(kv, `${p}:revoke`, REVOKES_PER_HOUR, 3_600_000),
+    ...(split.account > 0n ? { accountSpend: new SharedSpend(kv, `${p}:spend-account`, split.account) } : {}),
   };
 }
 
@@ -70,14 +80,15 @@ export function chooseState(
   pending: () => Promise<bigint>,
   ethPerHourWei: bigint,
   log: (message: string) => void = console.warn,
+  accountShareBps = 0n,
 ): RelayState {
   const up = upstashEnv(env);
-  if (up) return sharedState(upstashKv(up), chainId, relayer, pending, ethPerHourWei);
+  if (up) return sharedState(upstashKv(up), chainId, relayer, pending, ethPerHourWei, accountShareBps);
   if (env.NODE_ENV === "production" && chainId !== TESTNET_CHAIN_ID) {
     throw new Error("shared state required: set KV_REST_API_URL and KV_REST_API_TOKEN");
   }
   log("WARNING relayer state is in memory only. Limits, ETH budget, nonces and used orders are per process. Set KV_REST_API_URL and KV_REST_API_TOKEN.");
-  return freshState(pending, ethPerHourWei);
+  return freshState(pending, ethPerHourWei, accountShareBps);
 }
 
 export function createRuntime(cfg: RelayerConfig, env: NodeJS.ProcessEnv = process.env): HandleCtx {
@@ -143,6 +154,8 @@ export function createRuntime(cfg: RelayerConfig, env: NodeJS.ProcessEnv = proce
       account.address,
       async () => BigInt(await pub.getTransactionCount({ address: account.address, blockTag: "pending" })),
       cfg.ethPerHourWei,
+      console.warn,
+      cfg.accountShareBps,
     ),
     sessionKey: (owner: Address) => readSessionKey(pub, cfg.stash, owner),
     stashBalance: (owner: Address) => pub.readContract({ address: cfg.stash, abi: stashAbi, functionName: "balance", args: [owner] }),
