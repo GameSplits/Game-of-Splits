@@ -20,7 +20,7 @@ import { ERC1271_CHECK_GAS, TESTNET_CHAIN_ID, redact, type RelayerConfig } from 
 import { decodeRevert, extractRevertData } from "./decode.ts";
 import type { HandleCtx } from "./http.ts";
 import { pingHealthcheck } from "./ping.ts";
-import { GasCapError, MaybeSentError, SpendCapError, broadcastAmbiguous, gasLimitFor, knownRejection, neverReached } from "./policy.ts";
+import { GasCapError, MaybeSentError, SpendCapError, broadcastAmbiguous, gasLimitFor, isNonceLow, knownRejection, neverReached } from "./policy.ts";
 import { REVOKES_PER_HOUR, freshState, splitBudget, type RelayDeps, type RelayState, type SendOpts } from "./relay.ts";
 import { SharedNonces, SharedRateLimit, SharedSpend, SharedUsedOrders, upstashEnv, upstashKv, type Kv } from "./shared.ts";
 import type { Sim } from "./policy.ts";
@@ -39,6 +39,8 @@ export interface SendIo {
   sign?(tx: SendTx): Promise<{ raw: Hex; hash: Hex }>;
   /** Whether the node knows a transaction by hash, pending or mined. Throws when it cannot tell. */
   known?(hash: Hex): Promise<boolean>;
+  /** Waits before a second lookup. */
+  pause?(ms: number): Promise<void>;
 }
 
 export type SendTx = { data: Hex; nonce: bigint; gas: bigint; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint };
@@ -62,14 +64,29 @@ export async function sendCapped(io: SendIo, maxFeeWei: bigint, data: Hex, opts:
     if (broadcastAmbiguous(err)) throw new MaybeSentError(err, signed?.hash);
     // A clear error can still follow a send the node took (a proxy timeout, "already known"), so ask for the hash first.
     if (signed && io.known) {
-      let seen: boolean;
-      try {
-        seen = await io.known(signed.hash);
-      } catch {
-        if (neverReached(err)) throw err;
+      const known = io.known;
+      const look = async (): Promise<boolean | null> => {
+        try {
+          return await known(signed.hash);
+        } catch {
+          return null;
+        }
+      };
+      const low = isNonceLow(err) && !neverReached(err);
+      let seen = await look();
+      if (seen === null) {
+        // No answer. A clear refusal still frees the order; anything else, or a used nonce, may be our own send.
+        if (neverReached(err) || (knownRejection(err) && !low)) throw err;
         throw new MaybeSentError(err, signed.hash);
       }
       if (seen) return signed.hash;
+      if (low) {
+        // A used nonce right after our own send may be that send, taken by a node the lookup has not caught up with.
+        await io.pause?.(1_000);
+        seen = await look();
+        if (seen) return signed.hash;
+        throw new MaybeSentError(err, signed.hash);
+      }
       // Not found may only mean the read node lags. Only a known refusal proves it did not go out.
       if (!neverReached(err) && !knownRejection(err)) throw new MaybeSentError(err, signed.hash);
     }
@@ -104,6 +121,7 @@ export function chainSendIo(
       return { raw, hash: keccak256(raw) };
     },
     broadcast: (_tx, raw) => wallet.sendRawTransaction({ serializedTransaction: raw! }),
+    pause: (ms) => new Promise((r) => setTimeout(r, ms)),
     known: async (hash) => {
       try {
         await pub.getTransaction({ hash });

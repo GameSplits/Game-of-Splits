@@ -1,7 +1,7 @@
 // Vercel function entry. Every route is this one function so a warm instance shares the nonce queue.
 
 import { loadConfig, loadOrigins, type OriginPolicy } from "./config.ts";
-import { corsHeaders, handle, toResponse, type HandleInput } from "./http.ts";
+import { corsHeaders, handle, markNotSent, toResponse, type HandleInput } from "./http.ts";
 import { createRuntime } from "./runtime.ts";
 
 const MAX_BODY = 8192;
@@ -20,12 +20,12 @@ async function web(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(declared) && declared > MAX_BODY) {
-    return toResponse({ status: 413, body: { ok: false, error: "too large" } }, cors);
+    return toResponse(markNotSent({ status: 413, body: { ok: false, error: "too large" } }), cors);
   }
   let body = "";
   if (request.method === "POST") {
     body = await request.text();
-    if (body.length > MAX_BODY) return toResponse({ status: 413, body: { ok: false, error: "too large" } }, cors);
+    if (body.length > MAX_BODY) return toResponse(markNotSent({ status: 413, body: { ok: false, error: "too large" } }), cors);
   }
   const headers: HandleInput["headers"] = {};
   request.headers.forEach((value, key) => {

@@ -162,6 +162,8 @@ Failures:
 | 502 | `session unavailable` | the session read failed |
 | 503 | `balance unavailable` | `/health` could not read the balance |
 
+Every refusal made before anything was sent carries `sent: false` in the body and the header `x-gos-relay: not-sent` (exposed to browsers through CORS). Only then is it safe to send the order another way at once. `relay failed` and `relay pending` never carry it.
+
 ### EIP-712
 
 Domain: name `Stash`, version `1`, chainId `46630`, verifyingContract `0x904aA57AC6ee0f4c402b3abc1c3c5A599078660c`.

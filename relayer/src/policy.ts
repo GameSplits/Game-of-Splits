@@ -169,14 +169,17 @@ const REJECTION_NAMES = new Set([
   "IntrinsicGasTooHighError",
   "TransactionTypeNotSupportedError",
   "InvalidChainIdError",
+  "LimitExceededRpcError",
 ]);
+/** JSON-RPC codes a node uses for a request it turned away without taking it. -32005 is a provider rate or request limit. */
+const REJECTION_CODES = new Set([-32005]);
 const REJECTION_TEXT =
-  /nonce too (low|high)|nonce has already been used|insufficient funds|intrinsic gas too (low|high)|gas limit reached|fee cap (too low|less than)|max fee per gas less than|underpriced|fee too low|tip (higher|above)|invalid (chain ?id|signature|sender|transaction)|chain ?id mismatch|transaction type not supported|exceeds block gas limit/i;
+  /nonce too (low|high)|nonce has already been used|insufficient funds|intrinsic gas too (low|high)|gas limit reached|fee cap (too low|less than)|max fee per gas less than|underpriced|fee too low|tip (higher|above)|invalid (chain ?id|signature|sender|transaction)|chain ?id mismatch|transaction type not supported|exceeds block gas limit|limit exceeded|rate limit/i;
 
 /** A node's clear refusal of the transaction itself, sent before it took it, so it cannot have gone out. */
 export function knownRejection(err: unknown): boolean {
   return causes(err).some(
-    (e) => REJECTION_NAMES.has(e.name) || REJECTION_TEXT.test(String((e as { details?: unknown }).details ?? "")) || REJECTION_TEXT.test(e.message),
+    (e) => REJECTION_NAMES.has(e.name) || REJECTION_CODES.has((e as { code?: unknown }).code as number) || REJECTION_TEXT.test(String((e as { details?: unknown }).details ?? "")) || REJECTION_TEXT.test(e.message),
   );
 }
 
@@ -210,7 +213,17 @@ export function mayHaveBroadcast(err: unknown): boolean {
 
 /** The node says the nonce is ahead of the account, so there is a gap below it. */
 export function isNonceGap(err: unknown): boolean {
-  return hasErrorName(err, "NonceTooHighError");
+  return matches(err, "NonceTooHighError", /nonce too high/i);
+}
+
+/** The node says the nonce is already used. After a broadcast error that can be our own send, taken by a node that answered late. */
+export function isNonceLow(err: unknown): boolean {
+  return matches(err, "NonceTooLowError", /nonce too low|nonce has already been used/i);
+}
+
+/** True when any error in the chain has the name, or its message or details match. sendRawTransaction does not map node errors, so the raw text counts. */
+function matches(err: unknown, name: string, text: RegExp): boolean {
+  return causes(err).some((e) => e.name === name || text.test(e.message) || text.test(String((e as { details?: unknown }).details ?? "")));
 }
 
 export class NonceQueue implements Nonces {

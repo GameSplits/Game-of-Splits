@@ -3,7 +3,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import { loadConfig, loadOrigins, redact, type RelayerConfig } from "./config.ts";
-import { corsHeaders, handle } from "./http.ts";
+import { corsHeaders, handle, markNotSent, outHeaders } from "./http.ts";
 import { createRuntime } from "./runtime.ts";
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -30,7 +30,7 @@ function write(res: ServerResponse, cors: Record<string, string>, status: number
     res.end();
     return;
   }
-  res.writeHead(status, { ...cors, "content-type": "application/json" });
+  res.writeHead(status, { ...cors, ...outHeaders({ status, body }), "content-type": "application/json" });
   res.end(JSON.stringify(body));
 }
 
@@ -56,7 +56,8 @@ export function start(cfg: RelayerConfig): Promise<Server> {
       const message = err instanceof Error ? err.message : "";
       console.error(redact(message, secrets));
       const tooLarge = message === "too large";
-      write(res, cors, tooLarge ? 413 : 400, { ok: false, error: tooLarge ? "too large" : "bad request" });
+      const out = markNotSent({ status: tooLarge ? 413 : 400, body: { ok: false, error: tooLarge ? "too large" : "bad request" } });
+      write(res, cors, out.status, out.body);
     }
   });
   return new Promise((resolve, reject) => {

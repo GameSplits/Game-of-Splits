@@ -46,6 +46,7 @@ const BASE_HEADERS: Record<string, string> = {
   "access-control-allow-methods": "GET, POST, OPTIONS",
   "access-control-allow-headers": "content-type",
   "access-control-max-age": "86400",
+  "access-control-expose-headers": "x-gos-relay",
   "cache-control": "no-store",
   vary: "Origin",
 };
@@ -83,7 +84,28 @@ function barePath(path: string): string {
   return trimmed;
 }
 
+/** Set on refusals made before anything was sent, so a client may fall back at once. */
+export const NOT_SENT_HEADER = "x-gos-relay";
+
+/**
+ * Marks a refusal that happened before any send. Every refusal here is decided before the broadcast except
+ * "relay failed", which follows send attempts, and a maybe-sent 202. Those never carry the marker.
+ */
+export function markNotSent(out: HandleOutput & { maybeSent?: boolean }): HandleOutput {
+  if (out.status < 400 || out.maybeSent || !out.body || out.body.error === "relay failed") return { status: out.status, body: out.body };
+  return { status: out.status, body: { ...out.body, sent: false } };
+}
+
+/** Response headers for an output: the not-sent marker only with sent:false in the body. */
+export function outHeaders(out: HandleOutput): Record<string, string> {
+  return out.body?.sent === false ? { [NOT_SENT_HEADER]: "not-sent" } : {};
+}
+
 export async function handle(ctx: HandleCtx, input: HandleInput): Promise<HandleOutput> {
+  return markNotSent(await route(ctx, input));
+}
+
+async function route(ctx: HandleCtx, input: HandleInput): Promise<HandleOutput & { maybeSent?: boolean }> {
   if (input.method === "OPTIONS") return { status: 204, body: null };
   const name = input.route && input.route.length > 0 ? input.route : barePath(input.path).replace(/^\//, "");
   if (name === "health") {
@@ -165,7 +187,7 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
       // Only an order that went out, or may have, stays taken, so a refused one can be sent again.
       if (used && result?.status !== 200 && !result?.maybeSent) await used.drop(orderId);
     }
-    return { status: result.status, body: result.body };
+    return { status: result.status, body: result.body, ...(result.maybeSent ? { maybeSent: true } : {}) };
   } catch (err) {
     if (err instanceof HttpError) return { status: err.status, body: { ok: false, error: err.message } };
     return { status: 400, body: { ok: false, error: "bad request" } };
@@ -244,6 +266,6 @@ export function toResponse(out: HandleOutput, cors: Record<string, string>): Res
   if (out.status === 204 || out.body === null) return new Response(null, { status: out.status, headers: cors });
   return new Response(JSON.stringify(out.body), {
     status: out.status,
-    headers: { ...cors, "content-type": "application/json" },
+    headers: { ...cors, ...outHeaders(out), "content-type": "application/json" },
   });
 }

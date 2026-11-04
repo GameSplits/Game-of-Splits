@@ -9,7 +9,9 @@ import { TESTNET_STASH, loadConfig } from "../src/config.ts";
 import * as eip712 from "../src/eip712.ts";
 import { handle, type HandleCtx, type HandleInput } from "../src/http.ts";
 import { NonceQueue, broadcastAmbiguous, mayHaveBroadcast } from "../src/policy.ts";
-import { chainSendIo, sendCapped, sharedState } from "../src/runtime.ts";
+import { chainSendIo, sendCapped, sharedState, type SendIo } from "../src/runtime.ts";
+import { NOT_SENT_HEADER, corsHeaders, toResponse } from "../src/http.ts";
+import { parseTransaction } from "viem";
 import { SharedNonces, type Kv } from "../src/shared.ts";
 import { FakeKv } from "./fake-kv.ts";
 
@@ -58,6 +60,8 @@ type Faults = {
   /** Sign locally and look the hash up after a clear error, as the runtime does. */
   signed?: boolean;
   known?: (hash: Hex) => Promise<boolean>;
+  /** A whole send path, such as the real chainSendIo, in place of the fake chain. */
+  io?: SendIo;
 };
 const hashFor = (n: bigint) => `0x${n.toString(16).padStart(64, "0")}` as Hex;
 
@@ -71,7 +75,7 @@ function copy(kv: Kv, chain: Chain, f: Faults = {}, ownerNonce: (o: string) => P
       simulate: async () => ({ ok: true }),
       send: (data, o) =>
         sendCapped(
-          {
+          f.io ?? {
             baseFee: async () => (f.baseFee ? f.baseFee() : 20_000_000n),
             estimate: async () => (f.estimate ? f.estimate() : 80_000n),
             broadcast: async (tx) => {
@@ -489,4 +493,128 @@ test("C-2 with real viem: the runtime signs locally, and a JSON-RPC timeout on a
   } finally {
     s.close();
   }
+});
+
+test("B-1r with real viem: a raw-send 'nonce too high' from the node heals the gap, giving 202 then 200, 200, 200", async () => {
+  // The node models the sequencer: it takes only the next account nonce and answers geth's JSON-RPC errors.
+  let pending = 0n;
+  let dropNext = true;
+  const mined = new Set<string>();
+  const sent: bigint[] = [];
+  const s = http.createServer((q, res) => {
+    let d = "";
+    q.on("data", (c) => (d += c));
+    q.on("end", () => {
+      const b = JSON.parse(d) as { id: number; method: string; params: unknown[] };
+      const reply = (x: object, status = 200) => {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: b.id, ...x }));
+      };
+      if (b.method === "eth_sendRawTransaction") {
+        const raw = b.params[0] as Hex;
+        const n = BigInt(parseTransaction(raw).nonce ?? 0);
+        sent.push(n);
+        // A gateway 503 before the node saw it: the send may have gone out, so the relayer keeps the nonce.
+        if (dropNext) return (dropNext = false), reply({ error: { code: -32603, message: "unavailable" } }, 503);
+        if (n > pending) return reply({ error: { code: -32000, message: `nonce too high: address ${RELAYER}, tx: ${n} state: ${pending}` } });
+        if (n < pending) return reply({ error: { code: -32000, message: `nonce too low: address ${RELAYER}, tx: ${n} state: ${pending}` } });
+        pending++;
+        const h = keccak256(raw);
+        mined.add(h);
+        return reply({ result: h });
+      }
+      if (b.method === "eth_getTransactionByHash") return reply({ result: null });
+      reply({ error: { code: -32601, message: "method not found" } });
+    });
+  }).listen(0, "127.0.0.1");
+  await new Promise((r) => s.on("listening", r));
+  try {
+    const u = `http://127.0.0.1:${(s.address() as { port: number }).port}`;
+    const viemChain = defineChain({ id: 46630, name: "t", nativeCurrency: { name: "E", symbol: "E", decimals: 18 }, rpcUrls: { default: { http: [u] } } });
+    const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
+    const t = transport(u, { retryCount: 0, timeout: 2_000 });
+    const real = chainSendIo(createPublicClient({ chain: viemChain, transport: t }), createWalletClient({ account, chain: viemChain, transport: t }), account, 46630, TESTNET_STASH);
+    const io: SendIo = { ...real, baseFee: async () => 20_000_000n, estimate: async () => 80_000n };
+    const kv = new FakeKv();
+    const chain: Chain = { pending: 0n };
+    Object.defineProperty(chain, "pending", { get: () => pending });
+    const a = copy(kv, chain, { io });
+    const got: number[] = [];
+    for (let i = 0; i < 4; i++) got.push((await handle(a.ctx, req("authorize-key", await authBody(i), `198.51.100.${10 + i}`))).status);
+    assert.deepEqual(got, [202, 200, 200, 200]);
+    assert.deepEqual(sent, [0n, 1n, 0n, 1n, 2n]);
+    assert.equal(mined.size, 3);
+    assert.equal(String(await kv.get(NKEY)), "3");
+  } finally {
+    s.close();
+  }
+});
+
+test("H-1r: a clear refusal is freed even when the hash lookup fails, and a -32005 limit is a refusal", async () => {
+  const limit = txErr(Object.assign(new Error("rate limit exceeded"), { name: "RpcRequestError", code: -32005 }));
+  for (const err of [rpcErr("insufficient funds for gas * price + value"), limit]) {
+    let fail = true;
+    const a = copy(new FakeKv(), { pending: 0n, mined: new Set() }, {
+      signed: true,
+      known: async () => { throw new Error("lookup down"); },
+      broadcast: async () => { if (fail) { fail = false; throw err; } },
+    });
+    assert.equal((await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"))).status, 200);
+    assert.deepEqual(a.sends, [0n, 0n]);
+  }
+});
+
+test("C-2r': 'nonce too low' after a broadcast error is looked up again, and if still unknown it is maybe sent, not retried", async () => {
+  const low = rpcErr("nonce too low: address x, tx: 0 state: 1");
+  // Still unknown on the second look: 202, one send.
+  let looks = 0;
+  const a = copy(new FakeKv(), { pending: 0n, mined: new Set() }, {
+    signed: true,
+    known: async () => (looks++, false),
+    broadcast: async () => { throw low; },
+  });
+  const out = await handle(a.ctx, req("authorize-key", await authBody(0), "198.51.100.250"));
+  assert.deepEqual([out.status, out.body?.maybeSent], [202, true]);
+  assert.deepEqual([a.sends, looks], [[0n], 2]);
+  // Found on the second look: counted as sent with that hash.
+  let n = 0;
+  const b = copy(new FakeKv(), { pending: 0n, mined: new Set() }, {
+    signed: true,
+    known: async () => n++ > 0,
+    broadcast: async () => { throw low; },
+  });
+  const ok = await handle(b.ctx, req("authorize-key", await authBody(0), "198.51.100.251"));
+  assert.deepEqual([ok.status, ok.body?.hash, b.sends], [200, hashFor(0n), [0n]]);
+  // The lookup fails: maybe sent too.
+  const c = copy(new FakeKv(), { pending: 0n, mined: new Set() }, {
+    signed: true,
+    known: async () => { throw new Error("lookup down"); },
+    broadcast: async () => { throw low; },
+  });
+  assert.equal((await handle(c.ctx, req("authorize-key", await authBody(0), "198.51.100.252"))).status, 202);
+});
+
+test("not-sent marker: refusals before any send carry sent:false and the header, sends that may have gone out never do", async () => {
+  const marked = async (out: Awaited<ReturnType<typeof handle>>) => {
+    const res = toResponse(out, { "access-control-expose-headers": "x-gos-relay" });
+    return [out.status, out.body?.sent, res.headers.get(NOT_SENT_HEADER)];
+  };
+  // Gas above the cap, found by the estimate before the send.
+  const big = copy(new FakeKv(), { pending: 0n }, { estimate: async () => 10n ** 15n });
+  assert.deepEqual(await marked(await handle(big.ctx, req("authorize-key", await authBody(0), "198.51.100.1"))), [400, false, "not-sent"]);
+  // Gas price above the cap: a 5xx, but decided before the send.
+  const cap = copy(new FakeKv(), { pending: 0n }, { baseFee: async () => 10n ** 15n });
+  assert.deepEqual(await marked(await handle(cap.ctx, req("authorize-key", await authBody(0), "198.51.100.2"))), [503, false, "not-sent"]);
+  assert.match(corsHeaders(null, {} as never)["access-control-expose-headers"] ?? "", /x-gos-relay/);
+  // Validation.
+  assert.deepEqual(await marked(await handle(cap.ctx, req("authorize-key", "{", "198.51.100.3"))), [400, false, "not-sent"]);
+  // Maybe sent: no marker.
+  const maybe = copy(new FakeKv(), { pending: 0n }, { broadcast: async () => { throw new TimeoutError({ body: {}, url: "http://127.0.0.1:1" }); } });
+  assert.deepEqual(await marked(await handle(maybe.ctx, req("authorize-key", await authBody(0), "198.51.100.4"))), [202, undefined, null]);
+  // Failed after send attempts: no marker.
+  const failed = copy(new FakeKv(), { pending: 0n }, { broadcast: async () => { throw rpcErr("insufficient funds"); } });
+  assert.deepEqual(await marked(await handle(failed.ctx, req("authorize-key", await authBody(0), "198.51.100.5"))), [502, undefined, null]);
+  // Success: no marker.
+  const ok = copy(new FakeKv(), { pending: 0n });
+  assert.deepEqual(await marked(await handle(ok.ctx, req("authorize-key", await authBody(0), "198.51.100.6"))), [200, undefined, null]);
 });
