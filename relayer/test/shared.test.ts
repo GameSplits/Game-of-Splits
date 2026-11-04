@@ -9,48 +9,8 @@ import { handle, type HandleCtx, type HandleInput } from "../src/http.ts";
 import { SpendBudget, SpendCapError } from "../src/policy.ts";
 import { submitShot, type RelayDeps } from "../src/relay.ts";
 import { chooseState, sendCapped, sharedState } from "../src/runtime.ts";
+import { FakeKv } from "./fake-kv.ts";
 import { SharedNonces, SharedRateLimit, SharedSpend, SharedUsedOrders, upstashEnv, upstashKv, type Kv } from "../src/shared.ts";
-
-class FakeKv implements Kv {
-  readonly rows = new Map<string, { v: string; exp: number }>();
-  now = 1_000_000;
-  private live(key: string) {
-    const row = this.rows.get(key);
-    if (row && row.exp <= this.now) this.rows.delete(key);
-    return this.rows.get(key);
-  }
-  async incrTtl(key: string, by: number, ttlMs: number) {
-    const v = await this.incrBy(key, by);
-    this.rows.get(key)!.exp = this.now + ttlMs;
-    return v;
-  }
-  async incrBy(key: string, by: number) {
-    const row = this.live(key);
-    const v = Number(row?.v ?? 0) + by;
-    this.rows.set(key, { v: String(v), exp: row?.exp ?? Infinity });
-    return v;
-  }
-  async get(key: string) {
-    const row = this.live(key);
-    return row ? Number(row.v) : null;
-  }
-  async setNx(key: string, value: string, ttlMs: number) {
-    if (this.live(key)) return false;
-    this.rows.set(key, { v: value, exp: this.now + ttlMs });
-    return true;
-  }
-  async set(key: string, value: number) {
-    this.rows.set(key, { v: String(value), exp: Infinity });
-  }
-  async del(key: string) {
-    this.rows.delete(key);
-  }
-  async rewindNonce(key: string, nonce: number, pending: number, kept: boolean) {
-    const cur = (await this.get(key)) ?? -1;
-    if (!kept && cur === nonce + 1) await this.set(key, Math.max(pending, nonce));
-    else if (pending > cur) await this.set(key, pending);
-  }
-}
 
 test("upstashEnv reads the Vercel KV names or the Upstash names, and nothing when missing", () => {
   assert.equal(upstashEnv({}), null);
@@ -290,24 +250,32 @@ test("a viem-wrapped timeout counts as maybe sent: one attempt, the reservation 
   const a = copy(kv, { nonces: [], fail: false });
   let attempts = 0;
   const nonces: bigint[] = [];
-  a.deps.send = async (_d, o) => {
-    attempts++;
-    nonces.push(o.nonce);
-    await o.reserve(1_000_000_000n);
-    const err = new Error("transaction execution failed", { cause: new TimeoutError({ body: {}, url: "https://rpc.example.test" }) });
-    err.name = "TransactionExecutionError";
-    throw err;
-  };
+  let timeout = true;
+  a.deps.send = (d, o) =>
+    sendCapped(
+      {
+        baseFee: async () => 20_000_000n,
+        estimate: async () => 80_000n,
+        broadcast: async (tx) => {
+          attempts++;
+          nonces.push(tx.nonce);
+          if (!timeout) return "0xabc";
+          const err = new Error("transaction execution failed", { cause: new TimeoutError({ body: {}, url: "https://rpc.example.test" }) });
+          err.name = "TransactionExecutionError";
+          throw err;
+        },
+      },
+      500_000_000n,
+      d,
+      o,
+    );
   const body = await authBody("44");
   const out = await handle(a, req(body, "203.0.113.1"));
   assert.equal(out.status, 502);
   assert.equal(attempts, 1, "no retry under a new nonce");
   assert.ok((await (a.state.spend as SharedSpend).spentGwei(kv.now)) > 0, "reservation kept");
   assert.equal((await handle(a, req(body, "203.0.113.2"))).body?.error, "nonce in use");
-  a.deps.send = async (_d, o) => {
-    nonces.push(o.nonce);
-    return "0xabc";
-  };
+  timeout = false;
   assert.equal((await handle(a, req(await authBody("55"), "203.0.113.3"))).status, 200);
   assert.notEqual(nonces[1], nonces[0], "the maybe-sent nonce is not reused");
 });

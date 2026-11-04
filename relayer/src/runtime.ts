@@ -17,7 +17,7 @@ import { ERC1271_CHECK_GAS, TESTNET_CHAIN_ID, redact, type RelayerConfig } from 
 import { decodeRevert, extractRevertData } from "./decode.ts";
 import type { HandleCtx } from "./http.ts";
 import { pingHealthcheck } from "./ping.ts";
-import { GasCapError, SpendCapError, gasLimitFor } from "./policy.ts";
+import { GasCapError, MaybeSentError, SpendCapError, broadcastAmbiguous, gasLimitFor } from "./policy.ts";
 import { REVOKES_PER_HOUR, freshState, splitBudget, type RelayDeps, type RelayState, type SendOpts } from "./relay.ts";
 import { SharedNonces, SharedRateLimit, SharedSpend, SharedUsedOrders, upstashEnv, upstashKv, type Kv } from "./shared.ts";
 import type { Sim } from "./policy.ts";
@@ -44,7 +44,12 @@ export async function sendCapped(io: SendIo, maxFeeWei: bigint, data: Hex, opts:
   if (maxFeePerGas > maxFeeWei) throw new GasCapError();
   const gas = gasLimitFor(await io.estimate(data), opts.gasCap);
   if (!(await opts.reserve(gas * maxFeePerGas))) throw new SpendCapError();
-  return io.broadcast({ data, nonce: opts.nonce, gas, maxFeePerGas, maxPriorityFeePerGas: opts.priorityWei });
+  try {
+    return await io.broadcast({ data, nonce: opts.nonce, gas, maxFeePerGas, maxPriorityFeePerGas: opts.priorityWei });
+  } catch (err) {
+    // Only the broadcast itself can leave the outcome unknown.
+    throw broadcastAmbiguous(err) ? new MaybeSentError(err) : err;
+  }
 }
 
 /** Relay state in Upstash, keyed by chain and relayer address so testnet and any later mainnet copy never mix. */

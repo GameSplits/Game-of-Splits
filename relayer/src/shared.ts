@@ -2,7 +2,7 @@
 // state in memory, which is only correct for one process.
 
 import { Redis } from "@upstash/redis";
-import { mayHaveBroadcast, type Limiter, type Nonces, type Spend, type UsedOrders } from "./policy.ts";
+import { isNonceGap, mayHaveBroadcast, type Limiter, type Nonces, type Spend, type UsedOrders } from "./policy.ts";
 
 /** The few atomic Redis operations the shared state needs. Small so tests can run against an in-process fake. */
 export interface Kv {
@@ -18,9 +18,10 @@ export interface Kv {
    * Atomically gives back a nonce after a send that surely failed. Sets the counter to max(pending, nonce) only when
    * no other copy took a nonce after it (counter is still nonce + 1), and otherwise only moves it up to pending.
    * The counter never goes below a nonce another copy holds. With `kept` the nonce may have been used, so it is never
-   * given back and the counter only moves up to pending.
+   * given back and the counter only moves up to pending. With `gap` the node reported a nonce too high, so the counter
+   * is set to pending to fill the gap.
    */
-  rewindNonce(key: string, nonce: number, pending: number, kept: boolean): Promise<void>;
+  rewindNonce(key: string, nonce: number, pending: number, kept: boolean, gap: boolean): Promise<void>;
 }
 
 export interface UpstashEnv {
@@ -60,8 +61,8 @@ export function upstashKv(cfg: UpstashEnv): Kv {
     async del(key) {
       await redis.del(key);
     },
-    async rewindNonce(key, nonce, pending, kept) {
-      await redis.eval(REWIND_NONCE, [key], [String(nonce), String(pending), kept ? "1" : "0"]);
+    async rewindNonce(key, nonce, pending, kept, gap) {
+      await redis.eval(REWIND_NONCE, [key], [String(nonce), String(pending), kept ? "1" : "0", gap ? "1" : "0"]);
     },
   };
 }
@@ -70,7 +71,9 @@ const REWIND_NONCE = `
 local cur = tonumber(redis.call("GET", KEYS[1]) or "-1")
 local nonce = tonumber(ARGV[1])
 local pending = tonumber(ARGV[2])
-if ARGV[3] == "0" and cur == nonce + 1 then
+if ARGV[4] == "1" then
+  redis.call("SET", KEYS[1], tostring(pending))
+elseif ARGV[3] == "0" and cur == nonce + 1 then
   redis.call("SET", KEYS[1], tostring(math.max(pending, nonce)))
 elseif pending > cur then
   redis.call("SET", KEYS[1], tostring(pending))
@@ -156,6 +159,9 @@ export class SharedSpend implements Spend {
  * Relayer account nonce. INCR hands each send a distinct nonce across copies. The counter is seeded from the chain
  * pending count when missing. After a send that surely failed its nonce is given back only if no other copy took a
  * later one, and the counter never moves below a nonce another copy holds. A send that may have gone out keeps it.
+ * When the node reports a nonce too high, a nonce was skipped (a lost send or a killed copy), so the counter is reset
+ * to the chain pending count. The next attempt then fills the gap. A copy whose nonce gets handed out again fails
+ * with nonce too low, a sure failure.
  */
 export class SharedNonces implements Nonces {
   private readonly kv: Kv;
@@ -179,8 +185,13 @@ export class SharedNonces implements Nonces {
       try {
         return await fn(nonce);
       } catch (err) {
-        const chain = Number(await this.pending());
-        await this.kv.rewindNonce(this.key, Number(nonce), chain, mayHaveBroadcast(err));
+        const kept = mayHaveBroadcast(err);
+        const gap = isNonceGap(err);
+        try {
+          await this.kv.rewindNonce(this.key, Number(nonce), Number(await this.pending()), kept, gap);
+        } catch {
+          // Cleanup is best effort. The original error and its classification stand.
+        }
         throw err;
       }
     });

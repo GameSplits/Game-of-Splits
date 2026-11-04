@@ -124,21 +124,52 @@ export class ResignBook {
   }
 }
 
-const MAYBE_SENT = new Set(["TimeoutError", "AbortError", "HttpRequestError"]);
+/** Errors in a cause chain, outermost first. Stops on cycles. */
+function causes(err: unknown): Error[] {
+  const out: Error[] = [];
+  const seen = new Set<unknown>();
+  for (let cur: unknown = err; cur instanceof Error && !seen.has(cur); cur = (cur as { cause?: unknown }).cause) {
+    seen.add(cur);
+    out.push(cur);
+  }
+  return out;
+}
+
+/** True when any error in the cause chain has this name. */
+export function hasErrorName(err: unknown, name: string): boolean {
+  return causes(err).some((e) => e.name === name);
+}
+
+/** Thrown only by the broadcast call, when the transaction may have reached the node anyway. */
+export class MaybeSentError extends Error {
+  constructor(cause: unknown) {
+    super("broadcast outcome unknown", { cause });
+    this.name = "MaybeSentError";
+  }
+}
 
 /**
- * True for errors where the transaction may have reached the node anyway. viem wraps the transport error, for example
- * TransactionExecutionError around TimeoutError, so the whole cause chain is checked.
+ * Whether an error from the broadcast call itself leaves the outcome unknown: a timeout or abort, or an HTTP error
+ * with no status or a 5xx. HTTP 4xx, a refused connection and any JSON-RPC rejection are sure failures.
  */
+export function broadcastAmbiguous(err: unknown): boolean {
+  const chain = causes(err);
+  if (chain.some((e) => (e as { code?: unknown }).code === "ECONNREFUSED")) return false;
+  if (chain.some((e) => e.name === "TimeoutError" || e.name === "AbortError")) return true;
+  const http = chain.find((e) => e.name === "HttpRequestError");
+  if (!http) return false;
+  const status = (http as { status?: unknown }).status;
+  return typeof status !== "number" || status >= 500;
+}
+
+/** True only when the broadcast step marked the send as maybe sent. Errors before the broadcast are sure failures. */
 export function mayHaveBroadcast(err: unknown): boolean {
-  const seen = new Set<unknown>();
-  let cur: unknown = err;
-  while (cur instanceof Error && !seen.has(cur)) {
-    seen.add(cur);
-    if (MAYBE_SENT.has(cur.name)) return true;
-    cur = (cur as { cause?: unknown }).cause;
-  }
-  return false;
+  return hasErrorName(err, "MaybeSentError");
+}
+
+/** The node says the nonce is ahead of the account, so there is a gap below it. */
+export function isNonceGap(err: unknown): boolean {
+  return hasErrorName(err, "NonceTooHighError");
 }
 
 export class NonceQueue implements Nonces {
@@ -159,9 +190,14 @@ export class NonceQueue implements Nonces {
         this.next = nonce + 1n;
         return out;
       } catch (err) {
-        const chain = await this.pending();
-        // A send that may have gone out keeps its nonce, so nothing else is sent under it.
-        this.next = mayHaveBroadcast(err) && chain <= nonce ? nonce + 1n : chain;
+        const kept = mayHaveBroadcast(err);
+        try {
+          const chain = await this.pending();
+          // A send that may have gone out keeps its nonce, so nothing else is sent under it.
+          this.next = kept && chain <= nonce ? nonce + 1n : chain;
+        } catch {
+          this.next = kept ? nonce + 1n : null;
+        }
         throw err;
       }
     });
