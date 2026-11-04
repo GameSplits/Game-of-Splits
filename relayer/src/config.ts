@@ -16,6 +16,8 @@ export interface RelayerConfig {
   stash: Address;
   priorityWei: bigint;
   maxFeeWei: bigint;
+  /** The Stash withdrawal fee in USDG units (6 decimals). A relayed withdraw must be above it. */
+  withdrawFee: bigint;
   port: number;
   healthcheckUrl: string;
 }
@@ -57,6 +59,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): RelayerConfig {
   if (!Number.isFinite(capGwei) || capGwei <= 0) throw new Error("MAX_FEE_GWEI must be a positive number");
   const maxFeeWei = BigInt(Math.round(capGwei * 1e9));
   if (maxFeeWei <= BigInt(Math.round(gwei * 1e9)) * 2n) throw new Error("MAX_FEE_GWEI must be above twice PRIORITY_GWEI");
+  const feeRaw = (env.WITHDRAW_FEE ?? "").trim() || "1000000";
+  if (!/^[0-9]+$/.test(feeRaw)) throw new Error("WITHDRAW_FEE must be whole USDG units");
   const port = Number(env.PORT || "8787");
   if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new Error("PORT must be a valid port");
   const healthcheckUrl = (env.HEALTHCHECK_URL ?? "").trim();
@@ -70,6 +74,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): RelayerConfig {
     stash,
     priorityWei: BigInt(Math.round(gwei * 1e9)),
     maxFeeWei,
+    withdrawFee: BigInt(feeRaw),
     port,
     healthcheckUrl,
   };

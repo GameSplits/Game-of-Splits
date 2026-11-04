@@ -40,6 +40,7 @@ function env(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 function state(): RelayState {
   return {
     rates: new RateLimit(),
+    hourly: new RateLimit(60, 3_600_000),
     ips: new RateLimit(),
     resigns: new ResignBook(),
     nonces: new NonceQueue(async () => 7n),
@@ -380,4 +381,22 @@ test("MAX_FEE_GWEI defaults to 0.5 and must sit above twice the tip", () => {
   assert.equal(loadConfig(env({ MAX_FEE_GWEI: "2" })).maxFeeWei, 2_000_000_000n);
   assert.throws(() => loadConfig(env({ MAX_FEE_GWEI: "0" })));
   assert.throws(() => loadConfig(env({ MAX_FEE_GWEI: "0.03", PRIORITY_GWEI: "0.02" })));
+});
+
+test("a wallet gets 60 relayed calls an hour", async () => {
+  const st = state();
+  let t = 0;
+  const d = deps({ now: () => t });
+  const owner = "0x00000000000000000000000000000000000000aa";
+  for (let i = 0; i < 60; i++) {
+    t = i * 30_000;
+    const out = await submitShot(d, st, { owner, maxPrice: 10n, replaces: false, calldata: "0x01" });
+    assert.equal(out.status, 200, `call ${i}`);
+  }
+  t = 60 * 30_000;
+  const over = await submitShot(d, st, { owner, maxPrice: 10n, replaces: false, calldata: "0x01" });
+  assert.equal(over.status, 429);
+  t = 3_600_000 + 30_000;
+  const later = await submitShot(d, st, { owner, maxPrice: 10n, replaces: false, calldata: "0x01" });
+  assert.equal(later.status, 200);
 });

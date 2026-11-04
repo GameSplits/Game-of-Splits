@@ -5,7 +5,6 @@ import { assertSignature, HttpError, parseAction, ZERO_ADDRESS } from "./actions
 import { isAllowedOrigin, type OriginPolicy, type RelayerConfig } from "./config.ts";
 import type { SignedAction } from "./eip712.ts";
 import { LOW_BALANCE_WEI, RateLimit } from "./policy.ts";
-import { cleanLine, isTxHash, type LineStore } from "./lines.ts";
 import { submitShot, type RelayDeps, type RelayState } from "./relay.ts";
 
 export interface HandleCtx {
@@ -14,8 +13,6 @@ export interface HandleCtx {
   deps: RelayDeps;
   state: RelayState;
   sessionKey(owner: Address): Promise<Address>;
-  /** Where one-click Seat lines are kept. Null when no store is configured: takes still go through, lines are not saved. */
-  lines?: LineStore | null;
 }
 
 export interface HandleInput {
@@ -33,7 +30,7 @@ export interface HandleOutput {
   body: Record<string, unknown> | null;
 }
 
-/** Reads of saved lines get their own, larger budget, so page polls never use up a player's budget for takes. */
+/** Reads of /lines get their own, larger budget, so page polls never use up a player's budget for takes. */
 const READS = new RateLimit(240, 60_000);
 
 const ACTIONS = ["shoot", "take", "withdraw", "authorize-key", "set-limit", "revoke-key"] as const;
@@ -92,7 +89,8 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
     if (!READS.allow(clientIp(input.headers), ctx.deps.now())) {
       return { status: 429, body: { ok: false, error: "rate limit" } };
     }
-    return readLines(ctx, input.query ?? "");
+    // Seat lines are presets only. Custom lines are no longer saved or served, so this always answers empty.
+    return { status: 200, body: { ok: true, lines: {} } };
   }
   if (!isAction(name)) return { status: 404, body: { ok: false, error: "not found" } };
   if (input.method !== "POST") return { status: 405, body: { ok: false, error: "method" } };
@@ -100,7 +98,13 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
     return { status: 429, body: { ok: false, error: "rate limit" } };
   }
   try {
+    if (name === "take" && hasCustomLine(input.body)) {
+      return { status: 400, body: { ok: false, error: "custom lines are off" } };
+    }
     const parsed = parseAction(name, input.body, ctx.cfg);
+    if (parsed.action.kind === "withdraw" && parsed.action.message.amount <= ctx.cfg.withdrawFee) {
+      return { status: 400, body: { ok: false, error: "amount must be above the withdrawal fee" } };
+    }
     if (parsed.session) {
       let key: Address;
       try {
@@ -114,10 +118,6 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
       await assertSignature(ctx.cfg, parsed.action as SignedAction, parsed.action.message.owner);
     }
     const result = await submitShot(ctx.deps, ctx.state, parsed.request);
-    if (name === "take" && result.body.ok && result.body.hash) {
-      const saved = await saveLine(ctx, result.body.hash, input.body);
-      if (saved !== null) return { status: result.status, body: { ...result.body, line: saved } };
-    }
     return { status: result.status, body: result.body };
   } catch (err) {
     if (err instanceof HttpError) return { status: err.status, body: { ok: false, error: err.message } };
@@ -125,35 +125,13 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
   }
 }
 
-/** Saves the player's own line for a take this relayer just sent. A store error never fails the take. Returns
- *  "saved", "refused" (filtered or empty) or null when no line was asked for. */
-async function saveLine(ctx: HandleCtx, hash: string, raw: string): Promise<"saved" | "refused" | "unsaved" | null> {
-  let line: unknown;
+/** True when a take carries its own line text. Only the signed preset is accepted. */
+function hasCustomLine(raw: string): boolean {
   try {
-    line = (JSON.parse(raw) as Record<string, unknown>).line;
+    const line = (JSON.parse(raw) as Record<string, unknown>).line;
+    return line !== undefined && line !== null && line !== "";
   } catch {
-    return null;
-  }
-  if (line === undefined || line === null || line === "") return null;
-  const clean = cleanLine(line);
-  if (!clean) return "refused";
-  if (!ctx.lines) return "unsaved";
-  try {
-    await ctx.lines.set(hash, clean);
-    return "saved";
-  } catch {
-    return "unsaved";
-  }
-}
-
-async function readLines(ctx: HandleCtx, query: string): Promise<HandleOutput> {
-  const tx = new URLSearchParams(query.replace(/^\?/, "")).get("tx") ?? "";
-  const hashes = [...new Set(tx.split(",").map((h) => h.trim().toLowerCase()).filter(isTxHash))].slice(0, 50);
-  if (!ctx.lines || hashes.length === 0) return { status: 200, body: { ok: true, lines: {} } };
-  try {
-    return { status: 200, body: { ok: true, lines: await ctx.lines.getMany(hashes) } };
-  } catch {
-    return { status: 503, body: { ok: false, error: "lines unavailable" } };
+    return false;
   }
 }
 
