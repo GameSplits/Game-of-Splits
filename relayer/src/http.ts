@@ -1,7 +1,7 @@
 // One request handler for the local server and the Vercel function.
 
 import { getAddress, type Address } from "viem";
-import { assertSignature, HttpError, parseAction, ZERO_ADDRESS } from "./actions.ts";
+import { assertSignature, HttpError, parseAction, ZERO_ADDRESS, type WalletReader } from "./actions.ts";
 import { isAllowedOrigin, type OriginPolicy, type RelayerConfig } from "./config.ts";
 import type { SignedAction } from "./eip712.ts";
 import { LOW_BALANCE_WEI, RateLimit } from "./policy.ts";
@@ -15,6 +15,10 @@ export interface HandleCtx {
   sessionKey(owner: Address): Promise<Address>;
   /** The owner's Stash balance. A withdraw is refused while it is at or below the fee. */
   stashBalance(owner: Address): Promise<bigint>;
+  /** The owner's next unused Stash nonce. An order below it already landed and is refused before any budget is used. */
+  ownerNonce?(owner: Address): Promise<bigint>;
+  /** Reads for allowlisted ERC-1271 wallets. Without it every non-65-byte signature is refused. */
+  wallet?: WalletReader;
 }
 
 export interface HandleInput {
@@ -115,9 +119,21 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
         return { status: 502, body: { ok: false, error: "session unavailable" } };
       }
       if (key.toLowerCase() === ZERO_ADDRESS) return { status: 400, body: { ok: false, error: "key missing" } };
-      await assertSignature(ctx.cfg, parsed.action, key);
+      await assertSignature(ctx.cfg, parsed.action, key, ctx.wallet);
     } else {
-      await assertSignature(ctx.cfg, parsed.action as SignedAction, parsed.action.message.owner);
+      await assertSignature(ctx.cfg, parsed.action as SignedAction, parsed.action.message.owner, ctx.wallet);
+    }
+    if (ctx.ownerNonce) {
+      let next: bigint | undefined;
+      try {
+        next = await ctx.ownerNonce(parsed.action.message.owner);
+      } catch {
+        // The simulation still rejects a used nonce, and a failed simulation is not counted.
+        next = undefined;
+      }
+      if (next !== undefined && parsed.action.message.nonce < next) {
+        return { status: 400, body: { ok: false, error: "nonce used" } };
+      }
     }
     if (parsed.action.kind === "withdraw") {
       let balance: bigint;

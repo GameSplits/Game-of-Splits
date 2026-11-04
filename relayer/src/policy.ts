@@ -29,6 +29,11 @@ export class RateLimit {
     this.windowMs = windowMs;
   }
 
+  /** True when `owner` has no room left in the window. Nothing is counted. */
+  full(owner: string, now: number): boolean {
+    return (this.hits.get(owner) ?? []).filter((t) => now - t < this.windowMs).length >= this.limit;
+  }
+
   allow(owner: string, now: number): boolean {
     if (this.hits.size > 10_000) this.sweep(now);
     const fresh = (this.hits.get(owner) ?? []).filter((t) => now - t < this.windowMs);
@@ -122,5 +127,59 @@ export class GasCapError extends Error {
   constructor() {
     super("gas price above cap");
     this.name = "GasCapError";
+  }
+}
+
+/** Thrown by a sender when the gas estimate is above the cap for that action. Nothing is sent. */
+export class GasLimitError extends Error {
+  constructor() {
+    super("gas above cap");
+    this.name = "GasLimitError";
+  }
+}
+
+/** Thrown by a sender when the hourly ETH budget has no room for this send. Nothing is sent. */
+export class SpendCapError extends Error {
+  constructor() {
+    super("relay paused");
+    this.name = "SpendCapError";
+  }
+}
+
+/** Gas limit for one send: the estimate plus 20%, never above the cap. An estimate above the cap is refused. */
+export function gasLimitFor(estimate: bigint, cap: bigint): bigint {
+  if (estimate > cap) throw new GasLimitError();
+  const padded = (estimate * 12n) / 10n;
+  return padded > cap ? cap : padded;
+}
+
+/** ETH the relayer may commit to sends in a rolling window. Each send reserves its worst case, gas limit times max fee. */
+export class SpendBudget {
+  private readonly spends: { at: number; wei: bigint }[] = [];
+  private readonly limitWei: bigint;
+  private readonly windowMs: number;
+  private lastAlert = Number.NEGATIVE_INFINITY;
+
+  constructor(limitWei: bigint, windowMs = 3_600_000) {
+    this.limitWei = limitWei;
+    this.windowMs = windowMs;
+  }
+
+  spent(now: number): bigint {
+    while (this.spends.length > 0 && now - (this.spends[0]?.at ?? now) >= this.windowMs) this.spends.shift();
+    return this.spends.reduce((sum, row) => sum + row.wei, 0n);
+  }
+
+  reserve(wei: bigint, now: number): boolean {
+    if (this.spent(now) + wei > this.limitWei) return false;
+    this.spends.push({ at: now, wei });
+    return true;
+  }
+
+  /** True at most once a window, so a pause raises one alert instead of one per request. */
+  alertDue(now: number): boolean {
+    if (now - this.lastAlert < this.windowMs) return false;
+    this.lastAlert = now;
+    return true;
   }
 }

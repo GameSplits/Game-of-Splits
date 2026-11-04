@@ -1,19 +1,49 @@
 // Chain clients. The signing key is used to send and is never logged.
 
-import { createPublicClient, createWalletClient, defineChain, encodeFunctionData, getAddress, http, type Address } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  defineChain,
+  encodeFunctionData,
+  getAddress,
+  http,
+  keccak256,
+  type Address,
+  type Hex,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { stashAbi } from "./abi.ts";
-import { redact, type RelayerConfig } from "./config.ts";
+import { ERC1271_MAGIC, erc1271Abi, stashAbi } from "./abi.ts";
+import { ERC1271_CHECK_GAS, redact, type RelayerConfig } from "./config.ts";
 import { decodeRevert, extractRevertData } from "./decode.ts";
 import type { HandleCtx } from "./http.ts";
 import { pingHealthcheck } from "./ping.ts";
-import { GasCapError } from "./policy.ts";
-import { freshState, type RelayDeps } from "./relay.ts";
+import { GasCapError, SpendCapError, gasLimitFor } from "./policy.ts";
+import { freshState, type RelayDeps, type SendOpts } from "./relay.ts";
 import type { Sim } from "./policy.ts";
 
 export function simulationFromError(err: unknown): Sim {
   const data = extractRevertData(err);
   return data ? decodeRevert(data) : { ok: false, kind: "other", reason: "simulation failed" };
+}
+
+/** Chain calls one capped send needs. Split out so the cap and budget logic can be tested without a node. */
+export interface SendIo {
+  baseFee(): Promise<bigint>;
+  estimate(data: Hex): Promise<bigint>;
+  broadcast(tx: { data: Hex; nonce: bigint; gas: bigint; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }): Promise<Hex>;
+}
+
+/**
+ * One relayed send. Refuses a fee above MAX_FEE_GWEI, refuses an estimate above the action's gas cap, never sets a
+ * gas limit above the cap, and reserves gas limit times max fee against the hourly ETH budget before broadcasting.
+ */
+export async function sendCapped(io: SendIo, maxFeeWei: bigint, data: Hex, opts: SendOpts): Promise<Hex> {
+  const base = await io.baseFee();
+  const maxFeePerGas = base + opts.priorityWei;
+  if (maxFeePerGas > maxFeeWei) throw new GasCapError();
+  const gas = gasLimitFor(await io.estimate(data), opts.gasCap);
+  if (!opts.reserve(gas * maxFeePerGas)) throw new SpendCapError();
+  return io.broadcast({ data, nonce: opts.nonce, gas, maxFeePerGas, maxPriorityFeePerGas: opts.priorityWei });
 }
 
 export function createRuntime(cfg: RelayerConfig): HandleCtx {
@@ -31,31 +61,36 @@ export function createRuntime(cfg: RelayerConfig): HandleCtx {
 
   const deps: RelayDeps = {
     now: () => Date.now(),
-    simulate: async (data) => {
+    simulate: async (data, gasCap) => {
       try {
-        await pub.call({ account: account.address, to: cfg.stash, data });
+        await pub.call({ account: account.address, to: cfg.stash, data, gas: gasCap });
         return { ok: true };
       } catch (err) {
         return simulationFromError(err);
       }
     },
-    send: async (data, opts) => {
-      const block = await pub.getBlock();
-      const base = block.baseFeePerGas ?? 0n;
-      if (base + opts.priorityWei > cfg.maxFeeWei) throw new GasCapError();
-      const gas = await pub.estimateGas({ account: account.address, to: cfg.stash, data });
-      return wallet.sendTransaction({
-        account,
-        chain,
-        to: cfg.stash,
+    send: (data, opts) =>
+      sendCapped(
+        {
+          baseFee: async () => (await pub.getBlock()).baseFeePerGas ?? 0n,
+          estimate: (d) => pub.estimateGas({ account: account.address, to: cfg.stash, data: d }),
+          broadcast: (tx) =>
+            wallet.sendTransaction({
+              account,
+              chain,
+              to: cfg.stash,
+              data: tx.data,
+              value: 0n,
+              nonce: Number(tx.nonce),
+              gas: tx.gas,
+              maxFeePerGas: tx.maxFeePerGas,
+              maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+            }),
+        },
+        cfg.maxFeeWei,
         data,
-        value: 0n,
-        nonce: Number(opts.nonce),
-        gas: (gas * 12n) / 10n,
-        maxFeePerGas: base + opts.priorityWei,
-        maxPriorityFeePerGas: opts.priorityWei,
-      });
-    },
+        opts,
+      ),
     ethBalance: () => pub.getBalance({ address: account.address }),
     alert: async (message) => {
       console.error(`ALERT ${redact(message, secrets)}`);
@@ -68,9 +103,27 @@ export function createRuntime(cfg: RelayerConfig): HandleCtx {
     cfg,
     relayer: account.address,
     deps,
-    state: freshState(async () => BigInt(await pub.getTransactionCount({ address: account.address, blockTag: "pending" }))),
+    state: freshState(
+      async () => BigInt(await pub.getTransactionCount({ address: account.address, blockTag: "pending" })),
+      cfg.ethPerHourWei,
+    ),
     sessionKey: (owner: Address) => readSessionKey(pub, cfg.stash, owner),
     stashBalance: (owner: Address) => pub.readContract({ address: cfg.stash, abi: stashAbi, functionName: "balance", args: [owner] }),
+    ownerNonce: (owner: Address) => pub.readContract({ address: cfg.stash, abi: stashAbi, functionName: "nonces", args: [owner] }),
+    wallet: {
+      codeHash: async (address: Address) => {
+        const code = await pub.getCode({ address });
+        return code && code !== "0x" ? keccak256(code) : null;
+      },
+      isValid1271: async (address: Address, digest: Hex, signature: Hex) => {
+        const { data } = await pub.call({
+          to: address,
+          gas: ERC1271_CHECK_GAS,
+          data: encodeFunctionData({ abi: erc1271Abi, functionName: "isValidSignature", args: [digest, signature] }),
+        });
+        return typeof data === "string" && data.slice(0, 10).toLowerCase() === ERC1271_MAGIC;
+      },
+    },
   };
 }
 

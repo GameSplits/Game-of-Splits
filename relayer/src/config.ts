@@ -20,6 +20,50 @@ export interface RelayerConfig {
   withdrawFee: bigint;
   port: number;
   healthcheckUrl: string;
+  /** Gas cap for a relayed shoot or take. */
+  gasCapPlay: bigint;
+  /** Gas cap for a relayed withdraw, authorize, set limit or revoke. */
+  gasCapAccount: bigint;
+  /** ETH, in wei, the relayer may commit to sends in any rolling hour. Relaying pauses above it. */
+  ethPerHourWei: bigint;
+  /** Lowercase code hashes of ERC-1271 wallets whose non-65-byte signatures are checked. Empty means none are accepted. */
+  erc1271CodeHashes: ReadonlySet<string>;
+}
+
+/** Highest relayed shoot or take on testnet 46630 used 557,499 gas, and the highest take 489,172. */
+export const DEFAULT_GAS_CAP_PLAY = 900_000n;
+/** Highest relayed withdraw, authorizeKey or revokeKey on testnet 46630 used 79,548 gas. The Stash unit tests peak at 107,509 (authorizeKey) and 52,361 (setLimit). */
+export const DEFAULT_GAS_CAP_ACCOUNT = 250_000n;
+export const DEFAULT_ETH_PER_HOUR = "0.02";
+/** Gas allowed for one off-chain ERC-1271 check of an allowlisted wallet. */
+export const ERC1271_CHECK_GAS = 100_000n;
+
+function gasCap(env: NodeJS.ProcessEnv, name: string, fallback: bigint): bigint {
+  const raw = (env[name] ?? "").trim();
+  if (!raw) return fallback;
+  if (!/^[0-9]+$/.test(raw)) throw new Error(`${name} must be whole gas units`);
+  const value = BigInt(raw);
+  if (value < 50_000n || value > 5_000_000n) throw new Error(`${name} must be between 50000 and 5000000`);
+  return value;
+}
+
+function ethToWei(raw: string, name: string): bigint {
+  if (!/^[0-9]+(\.[0-9]{1,18})?$/.test(raw)) throw new Error(`${name} must be a positive ETH amount`);
+  const [whole, frac = ""] = raw.split(".");
+  const wei = BigInt(whole ?? "0") * 10n ** 18n + BigInt((frac + "0".repeat(18)).slice(0, 18));
+  if (wei <= 0n) throw new Error(`${name} must be a positive ETH amount`);
+  return wei;
+}
+
+function codeHashes(raw: string): ReadonlySet<string> {
+  const list = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0);
+  for (const hash of list) {
+    if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new Error("ERC1271_CODEHASHES must list 32-byte hex code hashes");
+  }
+  return new Set(list);
 }
 
 export function redact(text: string, secrets: readonly string[]): string {
@@ -77,6 +121,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): RelayerConfig {
     withdrawFee: BigInt(feeRaw),
     port,
     healthcheckUrl,
+    gasCapPlay: gasCap(env, "RELAY_GAS_CAP_PLAY", DEFAULT_GAS_CAP_PLAY),
+    gasCapAccount: gasCap(env, "RELAY_GAS_CAP_ACCOUNT", DEFAULT_GAS_CAP_ACCOUNT),
+    ethPerHourWei: ethToWei((env.RELAY_ETH_PER_HOUR ?? "").trim() || DEFAULT_ETH_PER_HOUR, "RELAY_ETH_PER_HOUR"),
+    erc1271CodeHashes: codeHashes(env.ERC1271_CODEHASHES ?? ""),
   };
 }
 

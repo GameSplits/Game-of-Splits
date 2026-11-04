@@ -160,4 +160,27 @@ export const stashAbi = [
       { name: "feeCap", type: "uint256" },
     ],
   },
+  {
+    type: "function",
+    name: "nonces",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
 ] as const;
+
+/** ERC-1271, called only for a wallet whose code hash is allowlisted. */
+export const erc1271Abi = [
+  {
+    type: "function",
+    name: "isValidSignature",
+    stateMutability: "view",
+    inputs: [
+      { name: "hash", type: "bytes32" },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [{ name: "", type: "bytes4" }],
+  },
+] as const;
+
+export const ERC1271_MAGIC = "0x1626ba7e";
