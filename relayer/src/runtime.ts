@@ -1,6 +1,6 @@
 // Chain clients. The signing key is used to send and is never logged.
 
-import { createPublicClient, createWalletClient, defineChain, getAddress, http, type Address } from "viem";
+import { createPublicClient, createWalletClient, defineChain, encodeFunctionData, getAddress, http, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { stashAbi } from "./abi.ts";
 import { redact, type RelayerConfig } from "./config.ts";
@@ -79,11 +79,12 @@ async function readSessionKey(
   stash: Address,
   owner: Address,
 ): Promise<Address> {
-  const session = await pub.readContract({
-    address: stash,
-    abi: stashAbi,
-    functionName: "session",
-    args: [owner],
+  // Only the key is needed. It is the first word on both the five value and the six value session(), so read
+  // that word directly and stay compatible with a Stash deployed before per-session fees.
+  const { data } = await pub.call({
+    to: stash,
+    data: encodeFunctionData({ abi: stashAbi, functionName: "session", args: [owner] }),
   });
-  return getAddress(session[0]);
+  if (!data || data.length < 66) throw new Error("session unavailable");
+  return getAddress(`0x${data.slice(26, 66)}`);
 }

@@ -157,6 +157,7 @@ export const stashAbi = [
       { name: "epoch", type: "uint48" },
       { name: "limit", type: "uint256" },
       { name: "spent", type: "uint256" },
+      { name: "feeCap", type: "uint256" },
     ],
   },
 ] as const;
