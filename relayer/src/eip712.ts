@@ -1,6 +1,6 @@
 // EIP-712 domain for Stash ("Stash", "1"). Field order matches the contract type strings.
 
-import { recoverTypedDataAddress, type Address, type Hex } from "viem";
+import { hashTypedData, recoverTypedDataAddress, type Address, type Hex } from "viem";
 
 export const DOMAIN_NAME = "Stash";
 export const DOMAIN_VERSION = "1";
@@ -187,5 +187,24 @@ export async function recoverSigner(chainId: number, stash: Address, action: Sig
         message: action.message,
         signature: action.signature,
       });
+  }
+}
+
+/** The EIP-712 digest Stash checks. An allowlisted ERC-1271 wallet is asked about this digest. */
+export function typedDigest(chainId: number, stash: Address, action: SignedAction): Hex {
+  const domain = stashDomain(chainId, stash);
+  switch (action.kind) {
+    case "shoot":
+      return hashTypedData({ domain, types: shootTypes, primaryType: "Shoot", message: action.message });
+    case "take":
+      return hashTypedData({ domain, types: takeTypes, primaryType: "Take", message: action.message });
+    case "withdraw":
+      return hashTypedData({ domain, types: withdrawTypes, primaryType: "Withdraw", message: action.message });
+    case "authorize-key":
+      return hashTypedData({ domain, types: authorizeTypes, primaryType: "AuthorizeKey", message: action.message });
+    case "set-limit":
+      return hashTypedData({ domain, types: limitTypes, primaryType: "SetLimit", message: action.message });
+    case "revoke-key":
+      return hashTypedData({ domain, types: revokeTypes, primaryType: "RevokeKey", message: action.message });
   }
 }

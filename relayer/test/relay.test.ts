@@ -20,7 +20,7 @@ import { simulationFromError } from "../src/runtime.ts";
 import { decodeRevert } from "../src/decode.ts";
 import { encodeErrorResult } from "viem";
 import { gameErrors } from "../src/decode.ts";
-import { NonceQueue, RateLimit, ResignBook, decideSim } from "../src/policy.ts";
+import { NonceQueue, RateLimit, ResignBook, SpendBudget, decideSim } from "../src/policy.ts";
 import { submitShot, type RelayDeps, type RelayState } from "../src/relay.ts";
 import { OwnerNonceGuard } from "../src/policy.ts";
 
@@ -45,6 +45,7 @@ function state(): RelayState {
     resigns: new ResignBook(),
     nonces: new NonceQueue(async () => 7n),
     owners: new OwnerNonceGuard(),
+    spend: new SpendBudget(10n ** 18n),
   };
 }
 

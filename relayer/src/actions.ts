@@ -6,6 +6,7 @@ import type { RelayerConfig } from "./config.ts";
 import {
   recoverSigner,
   signatureBytes,
+  typedDigest,
   type AuthorizeMessage,
   type LimitMessage,
   type RevokeMessage,
@@ -176,16 +177,50 @@ export function parseAction(kind: SignedAction["kind"], raw: string, cfg: Relaye
   return {
     action,
     session: kind === "shoot" || kind === "take",
-    request: { owner, maxPrice, replaces, calldata: encode(action) },
+    request: {
+      owner,
+      maxPrice,
+      replaces,
+      calldata: encode(action),
+      gasCap: kind === "shoot" || kind === "take" ? cfg.gasCapPlay : cfg.gasCapAccount,
+      account: kind === "authorize-key" || kind === "set-limit" || kind === "revoke-key",
+    },
   };
 }
 
+/** Chain reads for an allowlisted ERC-1271 wallet. Both are bounded by the runtime. */
+export interface WalletReader {
+  codeHash(address: Address): Promise<Hex | null>;
+  isValid1271(address: Address, digest: Hex, signature: Hex): Promise<boolean>;
+}
+
 /**
+ * Every signature is checked before anything is simulated or counted.
  * A 65-byte signature must recover to `expected` over this relayer's domain.
- * Any other length is left to the simulation, which is what Stash uses for ERC-1271 wallets.
+ * Any other length is refused unless `expected` is a contract whose code hash is in ERC1271_CODEHASHES
+ * and its isValidSignature accepts the digest within a fixed gas allowance.
  */
-export async function assertSignature(cfg: RelayerConfig, action: SignedAction, expected: Address): Promise<void> {
-  if (signatureBytes(action.signature) !== 65) return;
+export async function assertSignature(
+  cfg: RelayerConfig,
+  action: SignedAction,
+  expected: Address,
+  wallet?: WalletReader,
+): Promise<void> {
+  if (signatureBytes(action.signature) !== 65) {
+    if (cfg.erc1271CodeHashes.size === 0 || !wallet) throw new HttpError(400, "bad signature");
+    let ok = false;
+    try {
+      const hash = await wallet.codeHash(expected);
+      ok =
+        hash !== null &&
+        cfg.erc1271CodeHashes.has(hash.toLowerCase()) &&
+        (await wallet.isValid1271(expected, typedDigest(cfg.chainId, cfg.stash, action), action.signature));
+    } catch {
+      ok = false;
+    }
+    if (!ok) throw new HttpError(400, "bad signature");
+    return;
+  }
   let recovered: Address;
   try {
     recovered = await recoverSigner(cfg.chainId, cfg.stash, action);

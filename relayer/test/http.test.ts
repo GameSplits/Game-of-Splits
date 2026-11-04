@@ -8,7 +8,7 @@ import { TESTNET_STASH, loadConfig } from "../src/config.ts";
 import { shootTypes, stashDomain, takeTypes, withdrawTypes } from "../src/eip712.ts";
 import { clientIp, handle, type HandleCtx, type HandleInput } from "../src/http.ts";
 import { pingHealthcheck } from "../src/ping.ts";
-import { NonceQueue, OwnerNonceGuard, RateLimit, ResignBook } from "../src/policy.ts";
+import { NonceQueue, OwnerNonceGuard, RateLimit, ResignBook, SpendBudget } from "../src/policy.ts";
 
 const KEY = `0x${"11".repeat(32)}` as Hex;
 const OWNER_KEY = `0x${"33".repeat(32)}` as Hex;
@@ -56,6 +56,7 @@ function harness(over: Partial<HandleCtx> = {}) {
       resigns: new ResignBook(),
       nonces: new NonceQueue(async () => 4n),
       owners: new OwnerNonceGuard(),
+      spend: new SpendBudget(10n ** 18n),
     },
     sessionKey: async () => session.address,
     stashBalance: async () => 5_000_000n,
@@ -255,13 +256,15 @@ test("an owner withdrawal does not read the session key", async () => {
   }).slice(0, 10));
 });
 
-test("a non-65-byte signature is left to the simulation", async () => {
+test("a non-65-byte signature is refused before simulation", async () => {
   const h = harness();
   const body = JSON.parse(await shootBody()) as { signature: string };
   body.signature = `0x${"ab".repeat(40)}`;
   const out = await handle(h.ctx, post("/shoot", JSON.stringify(body)));
-  assert.equal(out.status, 200);
-  assert.equal(h.simulations(), 1);
+  assert.equal(out.status, 400);
+  assert.equal(out.body?.error, "bad signature");
+  assert.equal(h.simulations(), 0);
+  assert.equal(h.sent.length, 0);
 });
 
 test("rate limit is per IP", async () => {

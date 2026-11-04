@@ -1,7 +1,7 @@
 // One request handler for the local server and the Vercel function.
 
 import { getAddress, type Address } from "viem";
-import { assertSignature, HttpError, parseAction, ZERO_ADDRESS } from "./actions.ts";
+import { assertSignature, HttpError, parseAction, ZERO_ADDRESS, type WalletReader } from "./actions.ts";
 import { isAllowedOrigin, type OriginPolicy, type RelayerConfig } from "./config.ts";
 import type { SignedAction } from "./eip712.ts";
 import { LOW_BALANCE_WEI, RateLimit } from "./policy.ts";
@@ -15,6 +15,10 @@ export interface HandleCtx {
   sessionKey(owner: Address): Promise<Address>;
   /** The owner's Stash balance. A withdraw is refused while it is at or below the fee. */
   stashBalance(owner: Address): Promise<bigint>;
+  /** The owner's next unused Stash nonce. An order below it already landed and is refused before any budget is used. */
+  ownerNonce?(owner: Address): Promise<bigint>;
+  /** Reads for allowlisted ERC-1271 wallets. Without it every non-65-byte signature is refused. */
+  wallet?: WalletReader;
 }
 
 export interface HandleInput {
@@ -42,6 +46,7 @@ const BASE_HEADERS: Record<string, string> = {
   "access-control-allow-methods": "GET, POST, OPTIONS",
   "access-control-allow-headers": "content-type",
   "access-control-max-age": "86400",
+  "access-control-expose-headers": "x-gos-relay",
   "cache-control": "no-store",
   vary: "Origin",
 };
@@ -79,7 +84,31 @@ function barePath(path: string): string {
   return trimmed;
 }
 
+/** Set on refusals made before anything was sent, so a client may fall back at once. */
+export const NOT_SENT_HEADER = "x-gos-relay";
+
+/**
+ * Marks a refusal that happened before any send. Every refusal here is decided before the broadcast except
+ * "relay failed", which follows send attempts, and a maybe-sent 202. Those never carry the marker.
+ */
+export function markNotSent(out: HandleOutput & { maybeSent?: boolean; tried?: boolean }): HandleOutput {
+  if (out.status < 400 || out.maybeSent || out.tried || !out.body || out.body.error === "relay failed") return { status: out.status, body: out.body };
+  return { status: out.status, body: { ...out.body, sent: false } };
+}
+
+/** Response headers for an output: the not-sent marker only with sent:false in the body. */
+export function outHeaders(out: HandleOutput): Record<string, string> {
+  return out.body?.sent === false ? { [NOT_SENT_HEADER]: "not-sent" } : {};
+}
+
 export async function handle(ctx: HandleCtx, input: HandleInput): Promise<HandleOutput> {
+  return markNotSent(await route(ctx, input));
+}
+
+/** Extra hold past an order's deadline, for chain time running ahead of or behind the relayer's clock. */
+const ORDER_HOLD_MARGIN_MS = 30_000;
+
+async function route(ctx: HandleCtx, input: HandleInput): Promise<HandleOutput & { maybeSent?: boolean; tried?: boolean }> {
   if (input.method === "OPTIONS") return { status: 204, body: null };
   const name = input.route && input.route.length > 0 ? input.route : barePath(input.path).replace(/^\//, "");
   if (name === "health") {
@@ -96,7 +125,7 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
   }
   if (!isAction(name)) return { status: 404, body: { ok: false, error: "not found" } };
   if (input.method !== "POST") return { status: 405, body: { ok: false, error: "method" } };
-  if (!ctx.state.ips.allow(clientIp(input.headers), ctx.deps.now())) {
+  if (!(await ctx.state.ips.allow(clientIp(input.headers), ctx.deps.now()))) {
     return { status: 429, body: { ok: false, error: "rate limit" } };
   }
   try {
@@ -115,9 +144,26 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
         return { status: 502, body: { ok: false, error: "session unavailable" } };
       }
       if (key.toLowerCase() === ZERO_ADDRESS) return { status: 400, body: { ok: false, error: "key missing" } };
-      await assertSignature(ctx.cfg, parsed.action, key);
+      await assertSignature(ctx.cfg, parsed.action, key, ctx.wallet);
     } else {
-      await assertSignature(ctx.cfg, parsed.action as SignedAction, parsed.action.message.owner);
+      await assertSignature(ctx.cfg, parsed.action as SignedAction, parsed.action.message.owner, ctx.wallet);
+    }
+    if (ctx.ownerNonce) {
+      let next: bigint | undefined;
+      try {
+        next = await ctx.ownerNonce(parsed.action.message.owner);
+      } catch {
+        // The simulation still rejects a used nonce, and a failed simulation is not counted.
+        next = undefined;
+      }
+      if (next !== undefined && parsed.action.message.nonce < next) {
+        return { status: 400, body: { ok: false, error: "nonce used" } };
+      }
+      // Key changes are relayed only at the current nonce, so a held future order cannot bring a revoked key back.
+      if (isKeyChange(parsed.action.kind)) {
+        if (next === undefined) return { status: 502, body: { ok: false, error: "nonce unavailable" } };
+        if (parsed.action.message.nonce !== next) return { status: 400, body: { ok: false, error: "nonce not current" } };
+      }
     }
     if (parsed.action.kind === "withdraw") {
       let balance: bigint;
@@ -130,12 +176,66 @@ export async function handle(ctx: HandleCtx, input: HandleInput): Promise<Handle
         return { status: 400, body: { ok: false, error: "balance at or below the withdrawal fee" } };
       }
     }
-    const result = await submitShot(ctx.deps, ctx.state, parsed.request);
-    return { status: result.status, body: result.body };
+    const gate = await accountGate(ctx, parsed.action);
+    if (gate) return gate;
+    const used = ctx.state.used;
+    const orderId = `${parsed.action.kind}:${parsed.action.message.owner}:${parsed.action.message.nonce}`;
+    // Held no longer than the order can land: past its deadline the contract refuses it, so a direct play is safe.
+    const now = ctx.deps.now();
+    const holdMs = Math.max(1_000, Math.min(600_000, Number(parsed.action.message.deadline) * 1000 - now + ORDER_HOLD_MARGIN_MS));
+    if (used && !(await used.claim(orderId, now, holdMs))) {
+      return { status: 400, body: { ok: false, error: "nonce in use" } };
+    }
+    let result: Awaited<ReturnType<typeof submitShot>> | undefined;
+    try {
+      result = await submitShot(ctx.deps, ctx.state, parsed.request);
+    } finally {
+      // Only an order that went out, or may have, stays taken, so a refused one can be sent again.
+      // Once a raw send was tried it stays taken until it expires, even when the node seemed to refuse it.
+      if (used && result?.status !== 200 && !result?.maybeSent && !result?.tried) await used.drop(orderId);
+    }
+    return { status: result.status, body: result.body, ...(result.maybeSent ? { maybeSent: true } : {}), ...(result.tried ? { tried: true } : {}) };
   } catch (err) {
     if (err instanceof HttpError) return { status: err.status, body: { ok: false, error: err.message } };
     return { status: 400, body: { ok: false, error: "bad request" } };
   }
+}
+
+/**
+ * Authorize and set limit need at least RELAY_ACCOUNT_MIN_BALANCE in the Stash, so empty wallets cannot spend relayer gas.
+ * A revoke is always allowed while a key is live, so an owner can always cut off a key, and has its own per-owner budget.
+ * A revoke with no live key needs the same balance as the others.
+ */
+async function accountGate(ctx: HandleCtx, action: SignedAction): Promise<HandleOutput | null> {
+  if (action.kind !== "authorize-key" && action.kind !== "set-limit" && action.kind !== "revoke-key") return null;
+  const owner = action.message.owner;
+  if (action.kind === "revoke-key") {
+    if (ctx.state.revokes && (await ctx.state.revokes.full(owner.toLowerCase(), ctx.deps.now()))) {
+      return { status: 429, body: { ok: false, error: "rate limit" } };
+    }
+    let live = false;
+    try {
+      live = getAddress(await ctx.sessionKey(owner)).toLowerCase() !== ZERO_ADDRESS;
+    } catch {
+      live = false;
+    }
+    if (live) {
+      if (ctx.state.revokes) await ctx.state.revokes.allow(owner.toLowerCase(), ctx.deps.now());
+      return null;
+    }
+  }
+  let balance: bigint;
+  try {
+    balance = await ctx.stashBalance(owner);
+  } catch {
+    return { status: 502, body: { ok: false, error: "balance unavailable" } };
+  }
+  if (balance < ctx.cfg.accountMinBalance) return { status: 400, body: { ok: false, error: "deposit first" } };
+  return null;
+}
+
+function isKeyChange(kind: string): boolean {
+  return kind === "authorize-key" || kind === "set-limit";
 }
 
 /** True when a take carries its own line text. Only the signed preset is accepted. */
@@ -173,6 +273,6 @@ export function toResponse(out: HandleOutput, cors: Record<string, string>): Res
   if (out.status === 204 || out.body === null) return new Response(null, { status: out.status, headers: cors });
   return new Response(JSON.stringify(out.body), {
     status: out.status,
-    headers: { ...cors, "content-type": "application/json" },
+    headers: { ...cors, ...outHeaders(out), "content-type": "application/json" },
   });
 }

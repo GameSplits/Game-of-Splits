@@ -19,7 +19,56 @@ export function decideSim(sim: Sim, signedMax: bigint, alreadyRetried: boolean):
   return "reject";
 }
 
-export class RateLimit {
+type MaybePromise<T> = T | Promise<T>;
+
+/** Per key request budget. The in-memory classes below and the Upstash ones in shared.ts both fit. */
+export interface Limiter {
+  full(key: string, now: number): MaybePromise<boolean>;
+  allow(key: string, now: number): MaybePromise<boolean>;
+}
+
+/** Hands out relayer account nonces one send at a time. */
+export interface Nonces {
+  run<T>(fn: (nonce: bigint) => Promise<T>): Promise<T>;
+}
+
+/** Hourly ETH budget. A release gives back a reservation whose send definitely did not go out. */
+export interface Spend {
+  reserve(wei: bigint, now: number): MaybePromise<boolean>;
+  release(wei: bigint, at: number): MaybePromise<void>;
+  alertDue(now: number): MaybePromise<boolean>;
+}
+
+/** Signed orders already taken, keyed by action, owner and order nonce. */
+export interface UsedOrders {
+  /** Take the order for ttlMs, or the store's default hold when none is given. */
+  claim(id: string, now: number, ttlMs?: number): MaybePromise<boolean>;
+  drop(id: string): MaybePromise<void>;
+}
+
+export class MemoryUsedOrders implements UsedOrders {
+  /** Order id to the time its hold ends. */
+  private readonly seen = new Map<string, number>();
+  private readonly ttlMs: number;
+
+  constructor(ttlMs = 600_000) {
+    this.ttlMs = ttlMs;
+  }
+
+  claim(id: string, now: number, ttlMs = this.ttlMs): boolean {
+    for (const [key, until] of this.seen) if (now >= until) this.seen.delete(key);
+    const key = id.toLowerCase();
+    if (this.seen.has(key)) return false;
+    this.seen.set(key, now + Math.min(ttlMs, this.ttlMs));
+    return true;
+  }
+
+  drop(id: string): void {
+    this.seen.delete(id.toLowerCase());
+  }
+}
+
+export class RateLimit implements Limiter {
   private readonly hits = new Map<string, number[]>();
   private readonly limit: number;
   private readonly windowMs: number;
@@ -27,6 +76,11 @@ export class RateLimit {
   constructor(limit = 30, windowMs = 60_000) {
     this.limit = limit;
     this.windowMs = windowMs;
+  }
+
+  /** True when `owner` has no room left in the window. Nothing is counted. */
+  full(owner: string, now: number): boolean {
+    return (this.hits.get(owner) ?? []).filter((t) => now - t < this.windowMs).length >= this.limit;
   }
 
   allow(owner: string, now: number): boolean {
@@ -72,7 +126,113 @@ export class ResignBook {
   }
 }
 
-export class NonceQueue {
+/** Errors in a cause chain, outermost first. Stops on cycles. */
+function causes(err: unknown): Error[] {
+  const out: Error[] = [];
+  const seen = new Set<unknown>();
+  for (let cur: unknown = err; cur instanceof Error && !seen.has(cur); cur = (cur as { cause?: unknown }).cause) {
+    seen.add(cur);
+    out.push(cur);
+  }
+  return out;
+}
+
+/** True when any error in the cause chain has this name. */
+export function hasErrorName(err: unknown, name: string): boolean {
+  return causes(err).some((e) => e.name === name);
+}
+
+/** Thrown only by the broadcast call, when the transaction may have reached the node anyway. */
+export class MaybeSentError extends Error {
+  /** The locally computed hash of the signed transaction, when one is known. */
+  readonly hash?: `0x${string}`;
+  constructor(cause: unknown, hash?: `0x${string}`) {
+    super("broadcast outcome unknown", { cause });
+    this.name = "MaybeSentError";
+    if (hash) this.hash = hash;
+  }
+}
+
+/** The hash a MaybeSentError anywhere in the chain carries, if any. */
+export function maybeSentHash(err: unknown): `0x${string}` | undefined {
+  const found = causes(err).find((e) => e.name === "MaybeSentError") as MaybeSentError | undefined;
+  return found?.hash;
+}
+
+const REJECTION_NAMES = new Set([
+  "NonceTooHighError",
+  "NonceTooLowError",
+  "NonceMaxValueError",
+  "InsufficientFundsError",
+  "FeeCapTooLowError",
+  "FeeCapTooHighError",
+  "TipAboveFeeCapError",
+  "IntrinsicGasTooLowError",
+  "IntrinsicGasTooHighError",
+  "TransactionTypeNotSupportedError",
+  "InvalidChainIdError",
+]);
+// Rate and request limits (-32005, "rate limit") are left out: a retrying gateway can answer with one after it forwarded the send.
+const REJECTION_TEXT =
+  /nonce too (low|high)|nonce has already been used|insufficient funds|intrinsic gas too (low|high)|gas limit reached|fee cap (too low|less than)|max fee per gas less than|underpriced|fee too low|tip (higher|above)|invalid (chain ?id|signature|sender|transaction)|chain ?id mismatch|transaction type not supported|exceeds block gas limit/i;
+
+/** A node's clear refusal of the transaction itself, sent before it took it, so it cannot have gone out. Limits never count here. */
+export function knownRejection(err: unknown): boolean {
+  return causes(err).some((e) => REJECTION_NAMES.has(e.name) || textOf(e).some((t) => REJECTION_TEXT.test(t)));
+}
+
+/** The texts a node error can carry: the message, viem's details, and JSON-RPC data as a string or a nested message. */
+function textOf(e: Error): string[] {
+  const data = (e as { data?: unknown }).data;
+  const nested = data && typeof data === "object" ? (data as { message?: unknown }).message : undefined;
+  return [e.message, String((e as { details?: unknown }).details ?? ""), typeof data === "string" ? data : "", typeof nested === "string" ? nested : ""];
+}
+
+/** A broadcast error that shows the request never reached a node that could accept it: a refused connection or an HTTP 4xx. */
+export function neverReached(err: unknown): boolean {
+  const chain = causes(err);
+  if (chain.some((e) => (e as { code?: unknown }).code === "ECONNREFUSED")) return true;
+  const http = chain.find((e) => e.name === "HttpRequestError");
+  const status = (http as { status?: unknown } | undefined)?.status;
+  // A 408 or 429 can come from a gateway that already forwarded the send, so neither proves it never arrived.
+  return typeof status === "number" && status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
+/**
+ * Whether an error from the broadcast call itself leaves the outcome unknown: a timeout or abort, or an HTTP error
+ * with no status or a 5xx. HTTP 4xx, a refused connection and any JSON-RPC rejection are sure failures.
+ */
+export function broadcastAmbiguous(err: unknown): boolean {
+  const chain = causes(err);
+  if (chain.some((e) => (e as { code?: unknown }).code === "ECONNREFUSED")) return false;
+  if (chain.some((e) => e.name === "TimeoutError" || e.name === "AbortError")) return true;
+  const http = chain.find((e) => e.name === "HttpRequestError");
+  if (!http) return false;
+  const status = (http as { status?: unknown }).status;
+  return typeof status !== "number" || status >= 500;
+}
+
+/** True only when the broadcast step marked the send as maybe sent. Errors before the broadcast are sure failures. */
+export function mayHaveBroadcast(err: unknown): boolean {
+  return hasErrorName(err, "MaybeSentError");
+}
+
+/** The node says the nonce is ahead of the account, so there is a gap below it. */
+export function isNonceGap(err: unknown): boolean {
+  return matches(err, "NonceTooHighError", /nonce too high/i);
+}
+
+/** The node says the nonce is already used. After a broadcast error that can be our own send, taken by a node that answered late. */
+export function isNonceLow(err: unknown): boolean {
+  return matches(err, "NonceTooLowError", /nonce too low|nonce has already been used/i);
+}
+
+/** True when any error in the chain has the name, or its message or details match. sendRawTransaction does not map node errors, so the raw text counts. */
+function matches(err: unknown, name: string, text: RegExp): boolean {
+  return causes(err).some((e) => e.name === name || textOf(e).some((t) => text.test(t)));
+}
+
+export class NonceQueue implements Nonces {
   private tail: Promise<void> = Promise.resolve();
   private next: bigint | null = null;
   private readonly pending: () => Promise<bigint>;
@@ -90,7 +250,14 @@ export class NonceQueue {
         this.next = nonce + 1n;
         return out;
       } catch (err) {
-        this.next = await this.pending();
+        const kept = mayHaveBroadcast(err);
+        try {
+          const chain = await this.pending();
+          // A send that may have gone out keeps its nonce, so nothing else is sent under it.
+          this.next = kept && chain <= nonce ? nonce + 1n : chain;
+        } catch {
+          this.next = kept ? nonce + 1n : null;
+        }
         throw err;
       }
     });
@@ -122,5 +289,64 @@ export class GasCapError extends Error {
   constructor() {
     super("gas price above cap");
     this.name = "GasCapError";
+  }
+}
+
+/** Thrown by a sender when the gas estimate is above the cap for that action. Nothing is sent. */
+export class GasLimitError extends Error {
+  constructor() {
+    super("gas above cap");
+    this.name = "GasLimitError";
+  }
+}
+
+/** Thrown by a sender when the hourly ETH budget has no room for this send. Nothing is sent. */
+export class SpendCapError extends Error {
+  constructor() {
+    super("relay paused");
+    this.name = "SpendCapError";
+  }
+}
+
+/** Gas limit for one send: the estimate plus 20%, never above the cap. An estimate above the cap is refused. */
+export function gasLimitFor(estimate: bigint, cap: bigint): bigint {
+  if (estimate > cap) throw new GasLimitError();
+  const padded = (estimate * 12n) / 10n;
+  return padded > cap ? cap : padded;
+}
+
+/** ETH the relayer may commit to sends in a rolling window. Each send reserves its worst case, gas limit times max fee. */
+export class SpendBudget implements Spend {
+  private readonly spends: { at: number; wei: bigint }[] = [];
+  private readonly limitWei: bigint;
+  private readonly windowMs: number;
+  private lastAlert = Number.NEGATIVE_INFINITY;
+
+  constructor(limitWei: bigint, windowMs = 3_600_000) {
+    this.limitWei = limitWei;
+    this.windowMs = windowMs;
+  }
+
+  spent(now: number): bigint {
+    while (this.spends.length > 0 && now - (this.spends[0]?.at ?? now) >= this.windowMs) this.spends.shift();
+    return this.spends.reduce((sum, row) => sum + row.wei, 0n);
+  }
+
+  reserve(wei: bigint, now: number): boolean {
+    if (this.spent(now) + wei > this.limitWei) return false;
+    this.spends.push({ at: now, wei });
+    return true;
+  }
+
+  release(wei: bigint, at: number): void {
+    const i = this.spends.findIndex((row) => row.at === at && row.wei === wei);
+    if (i >= 0) this.spends.splice(i, 1);
+  }
+
+  /** True at most once a window, so a pause raises one alert instead of one per request. */
+  alertDue(now: number): boolean {
+    if (now - this.lastAlert < this.windowMs) return false;
+    this.lastAlert = now;
+    return true;
   }
 }
