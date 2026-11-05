@@ -237,7 +237,7 @@ export function createRuntime(cfg: RelayerConfig, env: NodeJS.ProcessEnv = proce
     env,
     cfg.chainId,
     account.address,
-    () => pub.getTransactionCount({ address: account.address, blockTag: "pending" }),
+    async () => BigInt(await pub.getTransactionCount({ address: account.address, blockTag: "pending" })),
     cfg.ethPerHourWei,
     console.warn,
     cfg.accountShareBps,
