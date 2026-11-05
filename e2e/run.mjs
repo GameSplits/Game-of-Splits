@@ -60,6 +60,7 @@ const core = parseAbi([
   "function opId(uint8 op, uint256 key, address value) view returns (bytes32)",
   "function revokeKeeper()",
   "function lastSwapAt(uint8) view returns (uint64)",
+  "function timelockDelay() view returns (uint256)",
 ]);
 const erc20 = parseAbi(["function approve(address,uint256) returns (bool)", "function transfer(address,uint256) returns (bool)", "function balanceOf(address) view returns (uint256)"]);
 const route = parseAbi(["function swapToToken(uint256 usdgIn, uint256 minOut, address recipient) returns (uint256)"]);
@@ -89,6 +90,16 @@ async function impersonated(from, to, data) {
 }
 const call = (from, to, abi, functionName, args) => impersonated(from, to, encodeFunctionData({ abi, functionName, args }));
 const read = (address, abi, functionName, args = []) => pub.readContract({ address, abi, functionName, args });
+// A1-12: after setup the Safe can only reset the anchor through the timelock (queue Op.ResetRatchet = 8, 48h on
+// mainnet, then execute). The anchor is priced before the wait, the fork has no other trades, so it still holds.
+const ZERO = "0x0000000000000000000000000000000000000000";
+async function safeReset(anchor) {
+  await call(SAFE, D.fairCore, core, "queue", [8, anchor, ZERO]);
+  await advance(Number(await read(D.fairCore, core, "timelockDelay")) + 60);
+  await call(SAFE, D.fairCore, core, "execute", [8, anchor, ZERO]);
+}
+// the queue, the execute and the wait itself (no keeper swap in 48h) push on top of the RatchetReset
+const RESET_NOISE = ["watcher:emergency:core.OpQueued", "watcher:high:core.OpExecuted", "watcher:high:keeper not buying"];
 
 async function routeARate(usdgIn) {
   // the same two V4Quoter legs the keeper and watcher use
@@ -332,20 +343,20 @@ try {
   const f6c = r.fills.find((f) => f.where.startsWith(h6c));
   check("6c push in block N-1 + floor fill in N: the prior-block check passes it, the average check doesn't", r6c.status === "success" && f6c?.d2a === "ok" && f6c?.d2b === "bad", `push ${Number(p.size) / 1e6} USDG, fill ${p.short} bps under the average; ${JSON.stringify(f6c)}`);
   expect("6d N-1 push", ["watcher:emergency:bad buyback fill", "watcher:emergency:keeper tx not accounted for"], { allow: ["watcher:high:stall"] });
-  await call(SAFE, D.fairCore, core, "resetRatchet", [await routeARate(10_000_000n)]); // the push left the market under the floor
+  await safeReset(await routeARate(10_000_000n)); // the push left the market under the floor
   await advance(3600);
   await watchPasses(4);
   newAlerts();
 
   // 7. Stall: the Safe resets the anchor 10% above market. The keeper skips silently; the watcher sends ONE stall
   //    push for all three ledgers (was 6 pushes in v1). The reset itself is an owner event (D4).
-  await call(SAFE, D.fairCore, core, "resetRatchet", [((await routeARate(10_000_000n)) * 110n) / 100n]);
+  await safeReset(((await routeARate(10_000_000n)) * 110n) / 100n);
   await watchPasses(11);
   s = await keeper();
   check("7a keeper doesn't swap into a stall", s.swaps.length === 0, `skips: ${skipsOf(s)}`);
-  const g7 = expect("7b stall: 1 stall push (+ the reset)", ["watcher:emergency:core.RatchetReset", `watcher:high:stall: anchor above market: ${ALL3}`]);
+  const g7 = expect("7b stall: 1 stall push (+ the reset)", ["watcher:emergency:core.RatchetReset", `watcher:high:stall: anchor above market: ${ALL3}`], { allow: RESET_NOISE });
   check("7c exactly one stall push", g7.filter((a) => a.title.startsWith("stall")).length === 1);
-  await call(SAFE, D.fairCore, core, "resetRatchet", [await routeARate(10_000_000n)]);
+  await safeReset(await routeARate(10_000_000n));
   await watcher();
   newAlerts();
 
@@ -363,7 +374,7 @@ try {
   await store.del("w:nonce");
   await advance(120);
   await watcher();
-  const g8 = expect("8b state wiped", ["watcher:high:watcher state not found", "watcher:high:nonce baseline missing", "watcher:emergency:keeper tx not accounted for"], { allow: ["watcher:emergency:keeper ETH dropping fast"] });
+  const g8 = expect("8b state wiped", ["watcher:high:watcher state not found", "watcher:high:nonce baseline missing", "watcher:emergency:keeper tx not accounted for"], { allow: ["watcher:emergency:keeper ETH dropping fast", "watcher:high:keeper not buying"] }); // the wipe drops the heartbeat dedupe too, and no keeper swap since the timelocked resets
   const nonceAlert = g8.find((a) => a.title === "keeper tx not accounted for");
   check("8c the re-check names all four thief nonces again", nonceAlert && (nonceAlert.message.match(/^nonce \d+/gm) ?? []).length === 4, nonceAlert?.message.replace(/\n/g, " / ").slice(0, 300));
 
@@ -387,9 +398,9 @@ try {
   check("8g the watcher dropped the earlier epoch's price samples", r.notes.some((n) => /earlier epochs dropped/.test(n)) && ((await store.get("w:price")) ?? []).every((x) => x.e === 1));
   s = await keeper();
   check("8h keeper stands down until the re-seed", s.swaps.length === 0 && s.errors.length === 0 && s.skips.some((x) => x.buybacks === "NotSeeded"), `skips: ${skipsOf(s)}`);
-  await call(SAFE, D.fairCore, core, "resetRatchet", [await routeARate(10_000_000n)]);
+  await safeReset(await routeARate(10_000_000n));
   await watchPasses(11); // a fresh 20 minutes of samples in the new epoch
-  expect("8i re-seed", ["watcher:emergency:core.RatchetReset"], { allow: ["watcher:high:keeper not buying"] });
+  expect("8i re-seed", ["watcher:emergency:core.RatchetReset"], { allow: RESET_NOISE });
   s = await keeper();
   check("8j keeper buys again in the new epoch", s.swaps.length >= 1 && s.errors.length === 0, `swaps: ${swapsOf(s)}; skips: ${skipsOf(s)}`);
   await advance(60);
