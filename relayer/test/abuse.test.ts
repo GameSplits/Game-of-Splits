@@ -64,6 +64,7 @@ function harness(extraEnv: Record<string, string> = {}) {
       priorityWei: 1n,
     },
     state: freshState(),
+    storageMode: "memory",
     sessionKey: async () => session.address,
     stashBalance: async () => 5_000_000n,
   };

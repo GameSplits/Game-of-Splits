@@ -105,6 +105,7 @@ function copy(kv: Kv, chain: Chain, f: Faults = {}, ownerNonce: (o: string) => P
       priorityWei: 1n,
     },
     state: sharedState(kv, 46630, RELAYER, async () => chain.pending, 10n ** 18n),
+    storageMode: "memory",
     sessionKey: async () => session.address,
     stashBalance: async () => 5_000_000n,
     ownerNonce,

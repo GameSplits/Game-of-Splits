@@ -44,6 +44,7 @@ function make(budgetWei: bigint, broadcastFails = false, balance = 0n, split = f
       priorityWei: 1n,
     },
     state: { rates: new RateLimit(30, 60_000), hourly: new RateLimit(60, 3_600_000), ips: new RateLimit(60, 60_000), resigns: new ResignBook(), nonces: new NonceQueue(async () => 0n), owners: new OwnerNonceGuard(), spend, used: new MemoryUsedOrders(), revokes: new RateLimit(3, 3_600_000), ...(split ? { accountSpend: new SpendBudget(share.account) } : {}) },
+    storageMode: "memory",
     sessionKey: async () => session.address,
     stashBalance: async () => balance,
     ownerNonce: async () => 0n,

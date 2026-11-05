@@ -198,6 +198,7 @@ Primary types and fields, in this order:
 | `ERC1271_CODEHASHES` | no | comma-separated code hashes of contract wallets whose non-65-byte signatures are checked. Default empty, which refuses all of them |
 | `ALLOW_ORIGIN` / `ALLOWED_ORIGINS` | no | comma-separated exact origins. Default `https://testnet.gameofsplits.fun,https://gos-testnet.vercel.app`. `*` is refused. Mainnet should list `https://gameofsplits.fun` and `https://www.gameofsplits.fun` only |
 | `ALLOW_ORIGIN_PATTERN` | no | one anchored regex for our Vercel previews. Default matches gos-testnet and gos-staging on the game-of-splits team and is off when `CHAIN_ID` is 4663. `off` disables it |
+| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | production | Upstash REST URL and token. On Vercel link the `gos-seat-lines` store. Without them production refuses to start |
 | `PORT` | local only | default `8787`. Vercel ignores it |
 
 The process refuses to start on any other chain id or Stash address. A filled `.env` is gitignored. Copy `.env.example`.

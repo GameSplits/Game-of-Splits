@@ -16,7 +16,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { ERC1271_MAGIC, erc1271Abi, stashAbi } from "./abi.ts";
-import { ERC1271_CHECK_GAS, TESTNET_CHAIN_ID, redact, type RelayerConfig } from "./config.ts";
+import { ERC1271_CHECK_GAS, redact, type RelayerConfig } from "./config.ts";
 import { decodeRevert, extractRevertData } from "./decode.ts";
 import type { HandleCtx } from "./http.ts";
 import { pingHealthcheck } from "./ping.ts";
@@ -160,7 +160,9 @@ export function sharedState(
   };
 }
 
-/** Upstash state when its env is set. Otherwise memory with a warning, except a production mainnet config, which refuses to start. */
+export type StorageMode = "kv" | "memory";
+
+/** Upstash when its env is set. Production (testnet or mainnet) refuses to start without KV. Local and tests may use memory. */
 export function chooseState(
   env: NodeJS.ProcessEnv,
   chainId: number,
@@ -170,13 +172,26 @@ export function chooseState(
   log: (message: string) => void = console.warn,
   accountShareBps = 0n,
 ): RelayState {
+  return chooseStorage(env, chainId, relayer, pending, ethPerHourWei, log, accountShareBps).state;
+}
+
+export function chooseStorage(
+  env: NodeJS.ProcessEnv,
+  chainId: number,
+  relayer: string,
+  pending: () => Promise<bigint>,
+  ethPerHourWei: bigint,
+  log: (message: string) => void = console.warn,
+  accountShareBps = 0n,
+): { state: RelayState; mode: StorageMode } {
   const up = upstashEnv(env);
-  if (up) return sharedState(upstashKv(up), chainId, relayer, pending, ethPerHourWei, accountShareBps);
-  if (env.NODE_ENV === "production" && chainId !== TESTNET_CHAIN_ID) {
+  if (up) return { state: sharedState(upstashKv(up), chainId, relayer, pending, ethPerHourWei, accountShareBps), mode: "kv" };
+  // Production on any chain (testnet 46630 or mainnet) must share state across instances.
+  if (env.NODE_ENV === "production") {
     throw new Error("shared state required: set KV_REST_API_URL and KV_REST_API_TOKEN");
   }
   log("WARNING relayer state is in memory only. Limits, ETH budget, nonces and used orders are per process. Set KV_REST_API_URL and KV_REST_API_TOKEN.");
-  return freshState(pending, ethPerHourWei, accountShareBps);
+  return { state: freshState(pending, ethPerHourWei, accountShareBps), mode: "memory" };
 }
 
 export function createRuntime(cfg: RelayerConfig, env: NodeJS.ProcessEnv = process.env): HandleCtx {
@@ -218,19 +233,22 @@ export function createRuntime(cfg: RelayerConfig, env: NodeJS.ProcessEnv = proce
     priorityWei: cfg.priorityWei,
   };
 
+  const storage = chooseStorage(
+    env,
+    cfg.chainId,
+    account.address,
+    () => pub.getTransactionCount({ address: account.address, blockTag: "pending" }),
+    cfg.ethPerHourWei,
+    console.warn,
+    cfg.accountShareBps,
+  );
+
   return {
     cfg,
     relayer: account.address,
     deps,
-    state: chooseState(
-      env,
-      cfg.chainId,
-      account.address,
-      async () => BigInt(await pub.getTransactionCount({ address: account.address, blockTag: "pending" })),
-      cfg.ethPerHourWei,
-      console.warn,
-      cfg.accountShareBps,
-    ),
+    state: storage.state,
+    storageMode: storage.mode,
     sessionKey: (owner: Address) => readSessionKey(pub, cfg.stash, owner),
     stashBalance: (owner: Address) => pub.readContract({ address: cfg.stash, abi: stashAbi, functionName: "balance", args: [owner] }),
     ownerNonce: (owner: Address) => pub.readContract({ address: cfg.stash, abi: stashAbi, functionName: "nonces", args: [owner] }),

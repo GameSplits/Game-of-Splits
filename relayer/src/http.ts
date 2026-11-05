@@ -12,6 +12,8 @@ export interface HandleCtx {
   relayer: Address;
   deps: RelayDeps;
   state: RelayState;
+  /** How shared limits and nonces are stored. Production always uses kv. */
+  storageMode: "kv" | "memory";
   sessionKey(owner: Address): Promise<Address>;
   /** The owner's Stash balance. A withdraw is refused while it is at or below the fee. */
   stashBalance(owner: Address): Promise<bigint>;
@@ -265,6 +267,10 @@ async function health(ctx: HandleCtx): Promise<HandleOutput> {
     if (low && LOW_BALANCE_ALERT.due(now)) {
       await ctx.deps.alert("relayer balance below 0.005 ETH");
     }
+    // Memory mode in production is a misconfig. Refuse healthy so probes fail closed.
+    if (ctx.storageMode === "memory" && process.env.NODE_ENV === "production") {
+      return { status: 503, body: { ok: false, error: "shared state required", state: "memory" } };
+    }
     const out: HandleOutput = {
       status: 200,
       body: {
@@ -274,6 +280,7 @@ async function health(ctx: HandleCtx): Promise<HandleOutput> {
         chainId: ctx.cfg.chainId,
         stash: ctx.cfg.stash,
         relayer: ctx.relayer,
+        state: ctx.storageMode,
       },
     };
     healthCache = { at: now, out };

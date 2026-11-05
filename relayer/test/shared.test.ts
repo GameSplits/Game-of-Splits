@@ -19,11 +19,12 @@ test("upstashEnv reads the Vercel KV names or the Upstash names, and nothing whe
   assert.throws(() => upstashEnv({ KV_REST_API_URL: "http://x", KV_REST_API_TOKEN: "t" }));
 });
 
-test("without Upstash: memory state with a loud warning, and a production non-testnet config refuses to start", () => {
+test("without Upstash: memory only outside production, and production (testnet or mainnet) refuses to start", () => {
   const logs: string[] = [];
   const st = chooseState({}, 46630, "0xabc", async () => 0n, 10n ** 16n, (m) => logs.push(m));
   assert.ok(st.spend instanceof SpendBudget);
   assert.match(logs[0] ?? "", /WARNING relayer state is in memory only/);
+  assert.throws(() => chooseState({ NODE_ENV: "production" }, 46630, "0xabc", async () => 0n, 10n ** 16n, () => {}), /shared state required/);
   assert.throws(() => chooseState({ NODE_ENV: "production" }, 4663, "0xabc", async () => 0n, 10n ** 16n, () => {}), /shared state required/);
   const shared = chooseState({ NODE_ENV: "production", KV_REST_API_URL: "https://x.upstash.io", KV_REST_API_TOKEN: "t" }, 4663, "0xabc", async () => 0n, 10n ** 16n);
   assert.ok(shared.spend instanceof SharedSpend);
@@ -129,6 +130,7 @@ function copy(kv: Kv, io: { nonces: bigint[]; fail: boolean; timeout?: boolean }
       priorityWei: 1n,
     },
     state: sharedState(kv, 46630, session.address, async () => 3n, budgetWei),
+    storageMode: "memory",
     sessionKey: async () => session.address,
     stashBalance: async () => 5_000_000n,
     ownerNonce: async () => 0n,

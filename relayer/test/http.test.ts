@@ -60,6 +60,7 @@ function harness(over: Partial<HandleCtx> = {}) {
     },
     sessionKey: async () => session.address,
     stashBalance: async () => 5_000_000n,
+    storageMode: "memory",
     ...over,
   };
   return { ctx, sent, alerts, simulations: () => simulations };
@@ -302,6 +303,7 @@ test("health reports a low balance and alerts", async () => {
   assert.equal(h.alerts.length, 1);
   assert.match(h.alerts[0], /0\.005 ETH/);
   assert.equal(h.alerts[0].includes(KEY), false);
+  assert.equal(out.body?.state, "memory");
 });
 
 test("health caches the body and dedupes low-balance alerts", async () => {
