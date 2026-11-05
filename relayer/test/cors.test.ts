@@ -18,19 +18,21 @@ test("defaults allow the live site and gos-testnet / gos-staging previews only",
 });
 
 test("ALLOW_ORIGIN and ALLOWED_ORIGINS replace the exact list and the pattern can be turned off", () => {
-  const p = loadOrigins({ ALLOW_ORIGIN: "https://a.example, https://b.example/", ALLOW_ORIGIN_PATTERN: "off" });
+  const p = loadOrigins({ CHAIN_ID: "46630", ALLOW_ORIGIN: "https://a.example, https://b.example/", ALLOW_ORIGIN_PATTERN: "off" });
   assert.deepEqual(p.exact, ["https://a.example", "https://b.example"]);
   assert.equal(p.pattern, null);
   assert.equal(isAllowedOrigin("https://b.example", p), true);
   assert.equal(isAllowedOrigin("https://gos-testnet-abc-game-of-splits.vercel.app", p), false);
-  const alias = loadOrigins({ ALLOWED_ORIGINS: "https://c.example", ALLOW_ORIGIN_PATTERN: "off" });
+  const alias = loadOrigins({ CHAIN_ID: "46630", ALLOWED_ORIGINS: "https://c.example", ALLOW_ORIGIN_PATTERN: "off" });
   assert.deepEqual(alias.exact, ["https://c.example"]);
 });
 
-test("mainnet chain id loads no preview pattern", () => {
+test("mainnet chain id loads no preview pattern and defaults to the mainnet site only", () => {
   const p = loadOrigins({ CHAIN_ID: "4663" });
   assert.equal(p.pattern, null);
-  assert.equal(isAllowedOrigin("https://testnet.gameofsplits.fun", p), true);
+  assert.deepEqual(p.exact, ["https://gameofsplits.fun", "https://www.gameofsplits.fun"]);
+  assert.equal(isAllowedOrigin("https://gameofsplits.fun", p), true);
+  assert.equal(isAllowedOrigin("https://testnet.gameofsplits.fun", p), false);
   assert.equal(isAllowedOrigin("https://gos-testnet-abc-game-of-splits.vercel.app", p), false);
   const explicit = loadOrigins(
     {
@@ -44,11 +46,12 @@ test("mainnet chain id loads no preview pattern", () => {
 });
 
 test("a wildcard, an unanchored pattern, or a pattern without our team is refused", () => {
-  assert.throws(() => loadOrigins({ ALLOW_ORIGIN: "*" }));
-  assert.throws(() => loadOrigins({ ALLOW_ORIGIN: "https://ok.example/path" }));
-  assert.throws(() => loadOrigins({ ALLOW_ORIGIN_PATTERN: "gos-testnet" }));
-  assert.throws(() =>
-    loadOrigins({ ALLOW_ORIGIN_PATTERN: "^https://gos-testnet-[a-z0-9-]+-other-team\\.vercel\\.app$" }),
+  assert.throws(() => loadOrigins({ CHAIN_ID: "46630", ALLOW_ORIGIN: "*" }), /exact/);
+  assert.throws(() => loadOrigins({ CHAIN_ID: "46630", ALLOW_ORIGIN: "https://ok.example/path" }), /exact/);
+  assert.throws(() => loadOrigins({ CHAIN_ID: "46630", ALLOW_ORIGIN_PATTERN: "gos-testnet" }), /anchored/);
+  assert.throws(
+    () => loadOrigins({ CHAIN_ID: "46630", ALLOW_ORIGIN_PATTERN: "^https://gos-testnet-[a-z0-9-]+-other-team\\.vercel\\.app$" }),
+    /game-of-splits/,
   );
 });
 

@@ -5,9 +5,56 @@ import { getAddress, type Address, type Hex } from "viem";
 const KEY = /^0x[0-9a-fA-F]{64}$/;
 
 export const TESTNET_CHAIN_ID = 46630;
+export const MAINNET_CHAIN_ID = 4663;
 export const TESTNET_STASH = getAddress("0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3");
+/**
+ * Stash on Robinhood Chain mainnet 4663. Null until DeployStashMainnet has run. Set it from
+ * contracts/deployments/4663.json in the same change that ships the mainnet relayer. While it is null
+ * the relayer refuses to start on 4663.
+ */
+export const MAINNET_STASH: Address | null = null;
 /** Public address of the testnet relayer. The key stays in RELAYER_KEY. */
 export const RELAYER_ADDRESS = getAddress("0x58941E09432D2EF6316FA3b99476e69e68933c94");
+
+/** Everything that differs between chains. A chain id that is not a key here is refused. */
+export interface ChainProfile {
+  chainId: number;
+  label: string;
+  /** The only Stash the relayer will send to on this chain. Null means not deployed yet, so loading fails. */
+  stash: Address | null;
+  /** Exact browser origins used when ALLOWED_ORIGINS and ALLOW_ORIGIN are unset. */
+  defaultOrigins: string;
+  /** Whether a Vercel preview pattern may be loaded. */
+  previewPattern: boolean;
+}
+
+export type ChainTable = Readonly<Record<number, ChainProfile>>;
+
+export const CHAINS: ChainTable = Object.freeze({
+  [TESTNET_CHAIN_ID]: Object.freeze({
+    chainId: TESTNET_CHAIN_ID,
+    label: "testnet",
+    stash: TESTNET_STASH,
+    defaultOrigins: "https://testnet.gameofsplits.fun,https://gos-testnet.vercel.app",
+    previewPattern: true,
+  }),
+  [MAINNET_CHAIN_ID]: Object.freeze({
+    chainId: MAINNET_CHAIN_ID,
+    label: "mainnet",
+    stash: MAINNET_STASH,
+    defaultOrigins: "https://gameofsplits.fun,https://www.gameofsplits.fun",
+    previewPattern: false,
+  }),
+});
+
+/** CHAIN_ID is required and must name a chain in the table. There is no default chain. */
+export function chainProfile(raw: string | undefined, chains: ChainTable = CHAINS): ChainProfile {
+  const text = (raw ?? "").trim();
+  const id = /^[0-9]{1,10}$/.test(text) ? Number(text) : NaN;
+  const profile = Object.prototype.hasOwnProperty.call(chains, id) ? chains[id] : undefined;
+  if (!profile) throw new Error(`CHAIN_ID must be one of ${Object.keys(chains).join(" or ")}`);
+  return profile;
+}
 
 export interface RelayerConfig {
   key: Hex;
@@ -101,12 +148,12 @@ function minBalance(raw: string): bigint {
 }
 
 /** Read the signing key from `RELAYER_KEY` only. The value is never copied into the error text. */
-export function loadConfig(env: NodeJS.ProcessEnv): RelayerConfig {
+export function loadConfig(env: NodeJS.ProcessEnv, chains: ChainTable = CHAINS): RelayerConfig {
   const key = env.RELAYER_KEY ?? "";
   if (!KEY.test(key)) throw new Error("missing or invalid env RELAYER_KEY");
-  const chainRaw = need(env, "CHAIN_ID");
-  if (!/^[0-9]+$/.test(chainRaw) || Number(chainRaw) !== TESTNET_CHAIN_ID) {
-    throw new Error("CHAIN_ID must be 46630");
+  const profile = chainProfile(need(env, "CHAIN_ID"), chains);
+  if (profile.stash === null) {
+    throw new Error(`STASH for ${profile.chainId} is not pinned in config.ts yet`);
   }
   let stash: Address;
   try {
@@ -114,8 +161,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): RelayerConfig {
   } catch {
     throw new Error("env STASH is not an address");
   }
-  if (stash.toLowerCase() !== TESTNET_STASH.toLowerCase()) {
-    throw new Error("STASH must be the 46630 deployment");
+  if (stash.toLowerCase() !== profile.stash.toLowerCase()) {
+    throw new Error(`STASH must be the ${profile.chainId} deployment`);
   }
   const gwei = Number(env.PRIORITY_GWEI || "0.02");
   if (!Number.isFinite(gwei) || gwei <= 0) throw new Error("PRIORITY_GWEI must be a positive number");
@@ -134,7 +181,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): RelayerConfig {
   return {
     key: key as Hex,
     rpcUrl: need(env, "RPC_URL"),
-    chainId: TESTNET_CHAIN_ID,
+    chainId: profile.chainId,
     stash,
     priorityWei: BigInt(Math.round(gwei * 1e9)),
     maxFeeWei,
@@ -156,7 +203,8 @@ export interface OriginPolicy {
   pattern: RegExp | null;
 }
 
-export const DEFAULT_ALLOW_ORIGIN = "https://testnet.gameofsplits.fun,https://gos-testnet.vercel.app";
+/** Testnet default origins. Each chain has its own default in CHAINS. */
+export const DEFAULT_ALLOW_ORIGIN = CHAINS[TESTNET_CHAIN_ID]!.defaultOrigins;
 /**
  * Preview URLs for our gos-testnet and gos-staging projects on the game-of-splits team only.
  * Used on testnet (46630). Mainnet (4663) never loads a preview pattern: use the exact list (gameofsplits.fun and www).
@@ -164,15 +212,15 @@ export const DEFAULT_ALLOW_ORIGIN = "https://testnet.gameofsplits.fun,https://go
 export const DEFAULT_ALLOW_ORIGIN_PATTERN =
   "^https://gos-(testnet|staging)-[a-z0-9-]+-game-of-splits\\.vercel\\.app$";
 
-export const MAINNET_CHAIN_ID = 4663;
-
 /**
- * Exact origins from `ALLOWED_ORIGINS` or `ALLOW_ORIGIN` (comma-separated).
+ * Exact origins from `ALLOWED_ORIGINS` or `ALLOW_ORIGIN` (comma-separated), else the chain's default.
  * Optional `ALLOW_ORIGIN_PATTERN` is one anchored regex for Vercel previews and is testnet-only
- * (off when CHAIN_ID is 4663, or when the value is "off"). Signatures still protect every action.
+ * (never loaded on 4663, and off when the value is "off"). Signatures still protect every action.
+ * CHAIN_ID (or `chainId`) must name a known chain, so a missing or unknown chain fails closed.
  */
-export function loadOrigins(env: NodeJS.ProcessEnv, chainId?: number): OriginPolicy {
-  const listRaw = (env.ALLOWED_ORIGINS ?? env.ALLOW_ORIGIN ?? "").trim() || DEFAULT_ALLOW_ORIGIN;
+export function loadOrigins(env: NodeJS.ProcessEnv, chainId?: number, chains: ChainTable = CHAINS): OriginPolicy {
+  const profile = chainProfile(chainId === undefined ? env.CHAIN_ID : String(chainId), chains);
+  const listRaw = (env.ALLOWED_ORIGINS ?? env.ALLOW_ORIGIN ?? "").trim() || profile.defaultOrigins;
   const exact = listRaw
     .split(",")
     .map((s) => s.trim().replace(/\/+$/, ""))
@@ -182,11 +230,10 @@ export function loadOrigins(env: NodeJS.ProcessEnv, chainId?: number): OriginPol
       throw new Error("ALLOW_ORIGIN must list exact http(s) origins");
     }
   }
-  const chain = chainId ?? Number((env.CHAIN_ID ?? "").trim() || "0");
   const patRaw = (env.ALLOW_ORIGIN_PATTERN ?? "").trim();
   let pattern: RegExp | null = null;
   // Mainnet and an explicit off use the exact list only. A stranger's Vercel project cannot match the default.
-  if (chain !== MAINNET_CHAIN_ID && patRaw !== "off") {
+  if (profile.previewPattern && patRaw !== "off") {
     const raw = patRaw || DEFAULT_ALLOW_ORIGIN_PATTERN;
     if (!raw.startsWith("^") || !raw.endsWith("$")) {
       throw new Error("ALLOW_ORIGIN_PATTERN must be anchored with ^ and $");

@@ -183,9 +183,9 @@ Primary types and fields, in this order:
 
 | Name | Required | Value |
 | --- | --- | --- |
-| `CHAIN_ID` | yes | `46630` |
+| `CHAIN_ID` | yes | `46630` on testnet or `4663` on mainnet. Any other value, or none, refuses to start. There is no default chain |
 | `RPC_URL` | yes | the testnet RPC, for example `https://rpc.testnet.chain.robinhood.com` |
-| `STASH` | yes | `0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3` |
+| `STASH` | yes | must equal the Stash pinned for that chain in `src/config.ts` (`CHAINS`). Testnet is `0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3`. Mainnet `MAINNET_STASH` is null until DeployStashMainnet has run, and while it is null the relayer refuses to start on 4663 |
 | `RELAYER_KEY` | yes | hex key for `0x58941E09432D2EF6316FA3b99476e69e68933c94`. Dashboard or shell only |
 | `HEALTHCHECK_URL` | no | POST target used when the balance is under 0.005 ETH |
 | `PRIORITY_GWEI` | no | priority fee in gwei. Default `0.02` |
@@ -196,8 +196,8 @@ Primary types and fields, in this order:
 | `RELAY_ACCOUNT_BUDGET_SHARE` | no | Share of `RELAY_ETH_PER_HOUR` kept for authorize key, set limit and revoke key. Plays get the rest, so account actions never pause plays. Default `0.25` |
 | `RELAY_ETH_PER_HOUR` | no | ETH the relayer may commit to gas in any rolling hour, per instance. Default `0.02` |
 | `ERC1271_CODEHASHES` | no | comma-separated code hashes of contract wallets whose non-65-byte signatures are checked. Default empty, which refuses all of them |
-| `ALLOW_ORIGIN` / `ALLOWED_ORIGINS` | no | comma-separated exact origins. Default `https://testnet.gameofsplits.fun,https://gos-testnet.vercel.app`. `*` is refused. Mainnet should list `https://gameofsplits.fun` and `https://www.gameofsplits.fun` only |
-| `ALLOW_ORIGIN_PATTERN` | no | one anchored regex for our Vercel previews. Default matches gos-testnet and gos-staging on the game-of-splits team and is off when `CHAIN_ID` is 4663. `off` disables it |
+| `ALLOW_ORIGIN` / `ALLOWED_ORIGINS` | no | comma-separated exact origins. Default per chain. Testnet is `https://testnet.gameofsplits.fun,https://gos-testnet.vercel.app` and mainnet is `https://gameofsplits.fun,https://www.gameofsplits.fun`. `*` is refused |
+| `ALLOW_ORIGIN_PATTERN` | no | one anchored regex for our Vercel previews. Default matches gos-testnet and gos-staging on the game-of-splits team and is never loaded when `CHAIN_ID` is 4663, even if set. `off` disables it |
 | `KV_REST_API_URL` / `KV_REST_API_TOKEN` | production | Upstash REST URL and token. On Vercel link the `gos-seat-lines` store. Without them production refuses to start |
 | `PORT` | local only | default `8787`. Vercel ignores it |
 
