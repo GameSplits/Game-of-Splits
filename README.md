@@ -9,7 +9,6 @@ ERC-8004 agent wallet may send the transaction; the pass checked is the controll
 the licence, bond and budget do not require a pass. Each shot sends 60% to the round's Purse and 40% to the Greenwood: the
 Locksley Vault ($wif bought and held, a $wif burn quarter, USDG held for future liquidity), the Alms (a charity the
 players vote on, paid by the Safe), the Bonfire ($wif bought and burned hourly by the keeper) and the Toll.
-Contract names keep the original Sherwood theme (FairCore, FairPass, ...).
 
 The play token, the pass amount, the buy token and the shot split live in **GameConfig**, a safe-owned config with a
 7-day timelock. The numbers above are the launch values. The site reads the current ones from `FairLens.configNow()`.

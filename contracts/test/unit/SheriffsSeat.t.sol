@@ -41,7 +41,7 @@ contract SheriffsSeatTest is Base {
     function takeAs(address who) internal returns (uint256 paid) {
         arb.set(arb.n() + 1);
         vm.prank(who);
-        paid = seat.take(type(uint256).max, address(0), "hello sherwood", 3);
+        paid = seat.take(type(uint256).max, address(0), "hello seat", 3);
     }
 
     function at(uint256 secsIntoDay) internal {
