@@ -177,7 +177,7 @@ export const OWNER_EVENTS = {
     ChangeQueued: "emergency",
     ChangeExecuted: "high",
     ChangeCancelled: "high",
-    RescueQueued: "emergency", // the owner pulling tokens out, 2-day delay to object
+    RescueQueued: "emergency", // the owner pulling tokens out, 7-day delay to object
     Rescued: "high",
     OwnershipTransferStarted: "emergency",
     OwnershipTransferred: "high",

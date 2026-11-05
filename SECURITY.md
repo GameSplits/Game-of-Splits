@@ -46,7 +46,7 @@ The Safe can pause sales, revoke the keeper immediately, and queue the changes i
 | RakeBuyer keeper, routes, ratchet, forward recipient | 48 hours | `timelockDelay()` is 0 |
 | Robin Among Thieves keeper, rake sink, licence amount, draw | 48 hours | `timelockDelay()` is 0 |
 | Robin Among Thieves bonds | 7 days, and bonds start disabled | `bondDelay()` is 0 and `bondsEnabled()` is false |
-| FeeSplitter recipients or split | 7 days | not deployed |
+| FeeSplitter recipients or split | 7 days | live at mainnet launch (BLK-5), Safe owned from the constructor |
 | LocksleyVault launcher | 7 days, then one attach | `launcher()` is the zero address. The 7 day wait is a constant on every chain |
 | Pass unlock | 24 hours after that wallet locked | same |
 | Outlaw licence return | 24 hours after the licence | same |
@@ -61,7 +61,7 @@ Fee-on-transfer buy tokens are unsupported. `FairCore._swap` and `RakeBuyer.buy`
 
 Fee-on-transfer USDG and fee-on-transfer play tokens fail closed. `FairCore.collect`, `FairPass.lock` and Robin Among Thieves deposits revert `TransferMismatch` unless the contract's balance rises by the exact amount.
 
-FeeSplitter assumes a standard token. A fee taken inside `transfer` can leave a leg in `owed` instead of paying it. The contract is not deployed on 46630.
+FeeSplitter assumes a standard token. A fee taken inside `transfer` can leave a leg in `owed` instead of paying it. It goes live at the mainnet launch, deployed by `script/DeployFeeSplitter.s.sol` right after the main deploy and checked by SafeAcceptVerify.
 
 A booth the Safe adds after setup can pull USDG from any wallet that approved FairCore, up to the booth allowance that wallet set for it. The launch booths are Last Arrow and the Sheriff's Seat. Those two do not use the extra allowance. Their `collect` call passes the booth's own `msg.sender` as the payer.
 
@@ -83,6 +83,6 @@ That measurement assumes nothing permissionless pays FairCore the buy token whil
 
 What remains: the Safe can still aim a FeeSplitter leg, or RakeBuyer's `forwardTo`, at some other contract. That takes the 7-day FeeSplitter timelock or RakeBuyer's timelock. A route that calls that contract during the swap takes FairCore's 48-hour `SetRoute` timelock. If both are in place, the contract can push buy tokens to FairCore and a short-filling route can pass `minOut`. The tokens forwarded are the payee's, not an extra mint, but the route keeps the USDG.
 
-SafeAccept fails that shape. A leg, RakeBuyer's vault, or `forwardTo` must have no code (an EOA, the unset forward, or the dead address) or be on the allowlist passed in (the Locksley Vault, and the dead address). A forwarder contract is rejected. The deployment file's `feeSplitter`, when present, must name this deploy's FairCore and RakeBuyer.
+SafeAccept fails that shape. A leg, RakeBuyer's vault, or `forwardTo` must have no code (an EOA, the unset forward, or the dead address) or be on the allowlist passed in (the Locksley Vault, the dead address, and the Safe itself). A forwarder contract is rejected. The deployment file's `feeSplitter` must name this deploy's FairCore, RakeBuyer, $wif and Locksley Vault, be owned by the Safe with nothing pending, carry the launch split and have no queued change or rescue. On mainnet Verify fails without it.
 
 The watcher should alert when a FeeSplitter leg or `forwardTo` is set to an address that has code. That is the signal for the timelocked misconfiguration above. It is not a substitute for the accept check.

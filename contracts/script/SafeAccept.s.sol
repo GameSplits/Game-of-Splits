@@ -432,6 +432,18 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         // M-3: setupSet(SetForwardTo) before finishSetup would redirect every forward; the deploy never sets it
         _w(w, address(d.rakeBuyer), "ForwardToSet(address)", 0);
         _w(w, address(d.rakeBuyer), "OwnershipTransferStarted(address,address)", offers);
+        // FeeSplitter (BLK-5, optional off mainnet): no change or rescue may be queued before Verify
+        if (address(d.feeSplitter) != address(0)) {
+            address f = address(d.feeSplitter);
+            _w(w, f, "ChangeQueued(bytes32,uint8,uint256,address,uint256)", 0);
+            _w(w, f, "ChangeExecuted(bytes32,uint8,uint256,address)", 0);
+            _w(w, f, "ChangeCancelled(bytes32)", 0);
+            _w(w, f, "RecipientUpdated(uint8,address)", 0);
+            _w(w, f, "SplitUpdated(uint16,uint16,uint16,uint16,uint16)", 0);
+            _w(w, f, "RescueQueued(bytes32,address,address,address,uint256,uint256)", 0);
+            _w(w, f, "Rescued(address,address,address,uint256)", 0);
+            _w(w, f, "OwnershipTransferStarted(address,address)", offers);
+        }
     }
 
     function _topics(bytes32 sig) internal pure returns (bytes32[] memory t) {
@@ -524,10 +536,33 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         _assertBytecode(d);
         _checkWiring(d);
         _assertDeployerHasNoPower(d, vm.envAddress("DEPLOYER"), safe, safeOwners);
-        address[] memory allow = new address[](2);
+        address[] memory allow = new address[](3);
         allow[0] = address(d.vault);
         allow[1] = 0x000000000000000000000000000000000000dEaD;
+        allow[2] = safe; // BLK-5: the Safe may hold a FeeSplitter leg; it moves nothing without its signers
         _assertSplitterAndForward(d, allow);
+        _checkFeeSplitter(d, safe);
+    }
+
+    /// BLK-5: FeeSplitter is live at mainnet launch (the owner, 5 Nov 2026). Mainnet Verify fails while the deployment file
+    /// has no `feeSplitter`. When present (any chain): the Safe owns it from the constructor with no open offer, its
+    /// `wif` is this deploy's $wif, the vault leg is this deploy's Locksley Vault, and the split is the launch split
+    /// (`_launchFeeSplit`, or FEE_SPLIT_BPS). Recipients are checked by `_assertSplitterAndForward`, the code by
+    /// `_assertFeeSplitterCode`, and every queue or rescue by the scan.
+    function _checkFeeSplitter(D memory d, address safe) internal view {
+        FeeSplitter fs = d.feeSplitter;
+        if (address(fs) == address(0)) {
+            require(!_mainnet(), "no feeSplitter in deployments/4663.json: run DeployFeeSplitter first");
+            return;
+        }
+        require(fs.owner() == safe && fs.pendingOwner() == address(0), "Safe doesn't own FeeSplitter");
+        require(fs.wif() == d.wif && fs.vault() == address(d.vault), "feeSplitter wif or vault");
+        FeeSplitter.FeeSplit memory w = _feeSplitFromEnv();
+        require(
+            fs.pursesBps() == w.pursesBps && fs.vaultBps() == w.vaultBps && fs.rebateBps() == w.rebateBps
+                && fs.burnBps() == w.burnBps && fs.opsBps() == w.opsBps,
+            "feeSplitter split isn't the launch split"
+        );
     }
 
     /// FeeSplitter's immutables must be this deploy's FairCore and RakeBuyer. A leg, RakeBuyer's vault, or
@@ -562,6 +597,10 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         _w(w, address(d.config), "OwnershipTransferred(address,address)", 2);
         _w(w, address(d.rat), "OwnershipTransferred(address,address)", 2);
         _w(w, address(d.rakeBuyer), "OwnershipTransferred(address,address)", 2);
+        // FeeSplitter's constructor sets the Safe directly: one OwnershipTransferred(0, Safe), never the deployer
+        if (address(d.feeSplitter) != address(0)) {
+            _w(w, address(d.feeSplitter), "OwnershipTransferred(address,address)", 1);
+        }
     }
 
     /// FairCore setup writes the scan must see. `indexed` is not part of the signature. `routeB == address(0)` expects
@@ -636,6 +675,7 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         _assertRobinCode(d);
         _assertRakeCode(d);
         _assertRoutes(d);
+        if (address(d.feeSplitter) != address(0)) _assertFeeSplitterCode(d);
         if (block.chainid == 46630) {
             _assertTestToken(d.usdg, "usdg");
             _assertTestToken(d.wif, "wif");
@@ -861,6 +901,25 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         }
     }
 
+    /// Immutables (wif, fairCore, rakeBuyer) come from the live getters; the recipients and split are storage, so
+    /// any valid values rebuild the same runtime code.
+    function _assertFeeSplitterCode(D memory d) internal {
+        string memory n = "feeSplitter";
+        address f = address(d.feeSplitter);
+        address wif_ = _addr(f, bytes4(keccak256("wif()")), n);
+        address fc = _addr(f, bytes4(keccak256("fairCore()")), n);
+        address rb = _addr(f, bytes4(keccak256("rakeBuyer()")), n);
+        address o = _addr(f, IDeployed.owner.selector, n);
+        address h = address(0xdEaD);
+        try new FeeSplitter(
+            wif_, o, FeeSplitter.Recipients(h, h, h, h, h), FeeSplitter.FeeSplit(0, 0, 0, 0, 10_000), fc, rb
+        ) returns (FeeSplitter ref) {
+            _match(f, address(ref), n);
+        } catch {
+            revert(_bad(n));
+        }
+    }
+
     function _assertRakeCode(D memory d) internal {
         string memory n = "rakeBuyer";
         RakeBuyer b = d.rakeBuyer;
@@ -1011,7 +1070,9 @@ contract SafeAcceptVerify is AcceptBase {
         // expects exactly the deploy's actions (one seed per anchor, no ownership offer). Any other owner action fails.
         _expectAll(_verifyWants(d), d.startBlock, head);
         console2.log(
-            "verified: Safe owns all seven, deployer has no power, anchor = Safe seed, no unplanned owner action up to block",
+            address(d.feeSplitter) == address(0)
+                ? "verified: Safe owns all seven, deployer has no power, anchor = Safe seed, no unplanned owner action up to block"
+                : "verified: Safe owns all seven and FeeSplitter, deployer has no power, anchor = Safe seed, no unplanned owner action up to block",
             head
         );
     }
