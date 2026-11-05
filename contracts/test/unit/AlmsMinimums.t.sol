@@ -4,6 +4,7 @@ pragma solidity 0.8.38;
 import {Test} from "forge-std/Test.sol";
 import {AlmsVote} from "../../src/AlmsVote.sol";
 import {IFairCore} from "../../src/interfaces/IFair.sol";
+import {Chapter0Dates} from "../../script/Chapter0Dates.sol";
 
 /// Just enough FairCore for AlmsVote's constructor and window checks.
 contract MinCore {
@@ -131,18 +132,19 @@ contract AlmsMinimumsTest is Test {
         a.setAlmsWindows(0, g + 6 hours, g + 8 hours, g + 10 hours);
     }
 
-    /// Timeline A1 on a 24h/24h contract: accepted up to 1 Nov 12:00 UTC, refused one second later.
-    function test_mainnetA1_deadline() public {
+    /// The mainnet Chapter 0 schedule on a 24h/24h contract: accepted up to 24h before suggestions open, refused one
+    /// second later. Times from script/Chapter0Dates.sol.
+    function test_mainnetChapter0_deadline() public {
         vm.chainId(4663);
         AlmsVote a = _alms(24 hours, 24 hours);
-        core.setFair(0, 1793577600, 1793750400);
-        vm.warp(1793620800 - 24 hours + 1);
+        core.setFair(0, Chapter0Dates.FAIR_START, Chapter0Dates.FAIR_END);
+        vm.warp(Chapter0Dates.ALMS_SUGGEST - 24 hours + 1);
         vm.prank(owner);
         vm.expectRevert(AlmsVote.BadWindows.selector);
-        a.setAlmsWindows(0, 1793620800, 1793707200, 1793793600);
-        vm.warp(1793620800 - 24 hours);
+        a.setAlmsWindows(0, Chapter0Dates.ALMS_SUGGEST, Chapter0Dates.ALMS_VOTE, Chapter0Dates.ALMS_END);
+        vm.warp(Chapter0Dates.ALMS_SUGGEST - 24 hours);
         vm.prank(owner);
-        a.setAlmsWindows(0, 1793620800, 1793707200, 1793793600);
+        a.setAlmsWindows(0, Chapter0Dates.ALMS_SUGGEST, Chapter0Dates.ALMS_VOTE, Chapter0Dates.ALMS_END);
     }
 
     /// Exact boundaries for any minimums: each check passes at its limit and fails one second past it.

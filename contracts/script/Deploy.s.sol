@@ -21,6 +21,7 @@ import {TestToken, TestRoute, ITestMint} from "../src/testnet/TestTokens.sol";
 import {MainnetAddrs} from "./Mainnet.s.sol";
 import {L2Head} from "./L2.s.sol";
 import {LaunchSplit} from "./LaunchSplit.s.sol";
+import {Chapter0Dates} from "./Chapter0Dates.sol";
 import {RobinAmongThieves} from "../src/RobinAmongThieves.sol";
 import {RakeBuyer} from "../src/RakeBuyer.sol";
 import {SafeHandover} from "../src/SafeHandover.sol";
@@ -511,22 +512,21 @@ contract DeployTestnet is TestnetBase {
 ///   TOLL_RECIPIENT, ANCHOR_SEED (the 30-min average from
 ///   `forge script script/Mainnet.s.sol:QuoteAnchor`; the script refuses a seed more than 20% from the live quote).
 /// Env (required): ELIGIBLE_IDS (comma-separated bytes32 donate.gg configIds, see contracts/eligible/fair0.json).
-///   Chapter 0's suggestions open 2 Nov 12:00 UTC, so the allowlist is set in the deploy itself.
-/// Deadline: setAlmsWindows needs 24h notice before suggestions open (2 Nov 12:00 UTC), so the script refuses to run
-///   after 1 Nov 11:00 UTC (18:00 Bangkok), leaving an hour for the broadcast to land.
+///   Chapter 0's suggestions open at Chapter0Dates.ALMS_SUGGEST, so the allowlist is set in the deploy itself.
+/// Dates: every Chapter 0 and Alms time lives in script/Chapter0Dates.sol (one edit).
+/// Deadline: setAlmsWindows needs 24h notice before suggestions open, so the script refuses to run after
+///   Chapter0Dates.DEPLOY_BY (ALMS_SUGGEST - 25h), leaving an hour for the broadcast to land.
 /// After broadcast: run script/SafeAccept.s.sol:SafeAcceptVerify (read-only checks + log scan). There is no accept batch:
 ///   the Safe already owns everything. ANCHOR_SEED stands; a later re-seed is a queued, bounded Op.ResetRatchet (48h).
 contract DeployMainnet is DeployBase, MainnetAddrs {
-    // Chapter 0, the Nottingham chapter (timeline A1, 30 Oct): 2 Nov 00:00 UTC -> 4 Nov 00:00 UTC, so the whole chapter
-    // ends before round one of judging closes (4 Nov 17:30 UTC).
-    uint64 constant FAIR0_START = 1793577600;
-    uint64 constant FAIR0_END = 1793750400;
-    // Alms: suggest 2 Nov 12:00 -> 3 Nov 12:00 UTC, vote 3 Nov 12:00 -> 4 Nov 12:00 UTC (5.5h before round one closes).
-    uint64 constant ALMS0_SUGGEST = 1793620800;
-    uint64 constant ALMS0_VOTE = 1793707200;
-    uint64 constant ALMS0_END = 1793793600;
-    // Latest start of the run: 24h notice for the Alms windows plus an hour for the broadcast (1 Nov 11:00 UTC).
-    uint64 constant DEPLOY_BY = ALMS0_SUGGEST - 25 hours;
+    // Chapter 0, the Nottingham chapter, and its Alms windows. The values live in script/Chapter0Dates.sol only.
+    uint64 constant FAIR0_START = Chapter0Dates.FAIR_START;
+    uint64 constant FAIR0_END = Chapter0Dates.FAIR_END;
+    uint64 constant ALMS0_SUGGEST = Chapter0Dates.ALMS_SUGGEST;
+    uint64 constant ALMS0_VOTE = Chapter0Dates.ALMS_VOTE;
+    uint64 constant ALMS0_END = Chapter0Dates.ALMS_END;
+    // Latest start of the run: 24h notice for the Alms windows plus an hour for the broadcast.
+    uint64 constant DEPLOY_BY = Chapter0Dates.DEPLOY_BY;
 
     function run() external {
         require(block.chainid == 4663, "mainnet only");
@@ -542,9 +542,14 @@ contract DeployMainnet is DeployBase, MainnetAddrs {
         // --sender / --account. Checked before the broadcast so a bad deployer never deploys.
         address deployer = msg.sender;
         _requireFreshDeployer(deployer, safe, keeper, toll, safeOwners, USDG, WIF);
-        require(block.timestamp <= DEPLOY_BY, "too late: deploy by 1 Nov 11:00 UTC (Alms need 24h notice)");
+        require(FAIR0_START % 1 days == 0 && FAIR0_END % 1 days == 0, "Chapter 0 must start and end on 00:00 UTC");
+        require(
+            ALMS0_VOTE >= ALMS0_SUGGEST + 24 hours && ALMS0_END >= ALMS0_VOTE + 24 hours,
+            "Alms suggest and vote windows must each be at least 24h on mainnet"
+        );
+        require(block.timestamp <= DEPLOY_BY, Chapter0Dates.deployByText());
         bytes32[] memory eligible = _eligibleEnv();
-        require(eligible.length != 0, "ELIGIBLE_IDS required: suggestions open 2 Nov 12:00 UTC");
+        require(eligible.length != 0, "ELIGIBLE_IDS required: the allowlist is set in the deploy");
         uint256 seed = vm.envUint("ANCHOR_SEED");
         _checkSeed(seed); // simulation only, before the broadcast
         uint256 startBlock = _l2Head(); // before the broadcast: a lower bound on the deploy block

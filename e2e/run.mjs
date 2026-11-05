@@ -21,8 +21,15 @@ const SAFE = process.env.OWNER_SAFE; // a real multisig SafeL2 made by make_safe
 const PAYER = "0x00000000000000000000000000000000000fee01";
 const ATTACKER = "0x00000000000000000000000000000000000bad01";
 const USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
-const FAIR0_START = 1793577600;
-const FAIR0_END = 1793750400; // 4 Nov 00:00 UTC (timeline A1)
+// Chapter 0 times from contracts/script/Chapter0Dates.sol, the one place they are set.
+const DATES = readFileSync(new URL("../contracts/script/Chapter0Dates.sol", import.meta.url), "utf8");
+const dateOf = (name) => {
+  const m = DATES.match(new RegExp(`uint64 internal constant ${name} = ([0-9]+);`));
+  if (!m) throw new Error(`Chapter0Dates.sol has no ${name}`);
+  return Number(m[1]);
+};
+const FAIR0_START = dateOf("FAIR_START");
+const FAIR0_END = dateOf("FAIR_END");
 const PORT = Number(process.env.E2E_PORT ?? 8790);
 const SECRET = "e2e-sendlog-secret";
 const STATE = join(WORK, "watcher-state.json");

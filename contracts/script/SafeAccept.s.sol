@@ -16,6 +16,7 @@ import {FairLens, IVaultView} from "../src/FairLens.sol";
 import {TestToken, TestRoute} from "../src/testnet/TestTokens.sol";
 import {MainnetAddrs} from "./Mainnet.s.sol";
 import {LaunchSplit} from "./LaunchSplit.s.sol";
+import {Chapter0Dates} from "./Chapter0Dates.sol";
 import {IFairCore, IGameConfig, IBuyRoute, Tokens, Split} from "../src/interfaces/IFair.sol";
 import {IIdentityRegistry, IReputationRegistry} from "../src/interfaces/I8004.sol";
 import {RobinAmongThieves} from "../src/RobinAmongThieves.sol";
@@ -306,8 +307,16 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
     }
 
     function _expectedFair0() internal view returns (uint64, uint64, uint64, uint64, uint64) {
-        // timeline A1 (30 Oct): Fair 2 Nov 00:00 -> 4 Nov 00:00, suggest 2 Nov 12:00, vote 3 Nov 12:00, end 4 Nov 12:00
-        if (_mainnet()) return (1793577600, 1793750400, 1793620800, 1793707200, 1793793600);
+        // Mainnet times come from script/Chapter0Dates.sol, the same values DeployMainnet set.
+        if (_mainnet()) {
+            return (
+                Chapter0Dates.FAIR_START,
+                Chapter0Dates.FAIR_END,
+                Chapter0Dates.ALMS_SUGGEST,
+                Chapter0Dates.ALMS_VOTE,
+                Chapter0Dates.ALMS_END
+            );
+        }
         return (
             uint64(vm.envUint("FAIR_START")),
             uint64(vm.envUint("FAIR_END")),

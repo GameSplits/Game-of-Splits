@@ -12,23 +12,25 @@ import {LocksleyVault} from "../../src/LocksleyVault.sol";
 import {FairLens} from "../../src/FairLens.sol";
 import {PoolKey, IV4Quoter, QuoteExactSingleParams} from "../../src/interfaces/IV4Minimal.sol";
 import {MockArbSys} from "../mocks/Mocks.sol";
+import {Chapter0Dates} from "../../script/Chapter0Dates.sol";
 
 /// Fair 0, the Nottingham Fair, end to end on a fork of Robinhood Chain mainnet with the real USDG, $wif, pools and
 /// hooks. The deploy and the Safe's accept batch run first as real `forge script --broadcast` steps on a local node
-/// (script/e2e/fair0_sim.sh); this test then plays 2 Nov 00:00 -> 4 Nov 00:00 UTC in 10-minute ticks on that node, then the Alms vote ends
-/// 4 Nov 12:00 UTC (timeline A1: the whole Fair and the vote finish before judging).
+/// (script/e2e/fair0_sim.sh); this test then plays the whole of Chapter 0 in 10-minute ticks on that node, then the Alms
+/// vote ends (all times from script/Chapter0Dates.sol).
 contract Fair0Sim is Test {
     // ---------------------------------------------------------------- chain
     address constant USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
     address constant WIF = 0x5173b8eA6923c2d40267890D45C46a3480954773;
     address constant QUOTER = 0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94;
     address constant DEAD = 0x000000000000000000000000000000000000dEaD;
-    uint64 constant START = 1793577600; // 2 Nov 00:00 UTC
-    uint64 constant END = 1793750400; // 4 Nov 00:00 UTC
-    uint64 constant SUGGEST = 1793620800; // 2 Nov 12:00 UTC
-    uint64 constant VOTE = 1793707200; // 3 Nov 12:00 UTC
-    uint64 constant VOTE_END = 1793793600; // 4 Nov 12:00 UTC (after the Fair ends)
-    uint64 constant PAUSE_AT = START + 1 days + 4 hours; // 3 Nov 04:00-06:00 UTC emergency pause
+    // Chapter 0 and Alms times from script/Chapter0Dates.sol, the same values DeployMainnet sets.
+    uint64 constant START = Chapter0Dates.FAIR_START;
+    uint64 constant END = Chapter0Dates.FAIR_END;
+    uint64 constant SUGGEST = Chapter0Dates.ALMS_SUGGEST;
+    uint64 constant VOTE = Chapter0Dates.ALMS_VOTE;
+    uint64 constant VOTE_END = Chapter0Dates.ALMS_END; // after the chapter ends
+    uint64 constant PAUSE_AT = START + 1 days + 4 hours; // day two 04:00-06:00 UTC emergency pause
     bytes32 constant RED = keccak256("red-cross-campaign");
     bytes32 constant BLUE = keccak256("blue-ocean-fund");
     bytes32 constant GREEN = keccak256("green-forest-trust");
