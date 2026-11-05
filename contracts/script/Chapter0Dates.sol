@@ -7,7 +7,7 @@ pragma solidity 0.8.38;
 ///
 /// Dates set by the owner on 5 Nov 2026:
 ///   Chapter 0 runs 12 Nov 2026 00:00 UTC to 14 Nov 2026 00:00 UTC.
-///   Alms suggestions open 12 Nov 12:00 UTC, voting opens 13 Nov 00:00 UTC, and Alms end 14 Nov 12:00 UTC.
+///   Alms suggestions open 12 Nov 00:00 UTC (option a, 5 Nov), voting opens 13 Nov 00:00 UTC, and Alms end 14 Nov 12:00 UTC.
 ///
 /// Rules checked in test/unit/Chapter0Dates.t.sol and again in DeployMainnet: start and end on 00:00 UTC (SEAT-01),
 /// start before end, suggest at or after start, each Alms window at least 24h (AlmsVote.MAINNET_MIN), Alms end after
@@ -16,14 +16,14 @@ pragma solidity 0.8.38;
 library Chapter0Dates {
     uint64 internal constant FAIR_START = 1794441600; // 12 Nov 2026 00:00 UTC
     uint64 internal constant FAIR_END = 1794614400; // 14 Nov 2026 00:00 UTC
-    uint64 internal constant ALMS_SUGGEST = 1794484800; // 12 Nov 2026 12:00 UTC
+    uint64 internal constant ALMS_SUGGEST = 1794441600; // 12 Nov 2026 00:00 UTC
     uint64 internal constant ALMS_VOTE = 1794528000; // 13 Nov 2026 00:00 UTC
     uint64 internal constant ALMS_END = 1794657600; // 14 Nov 2026 12:00 UTC
 
     /// Latest start of the deploy run. Derived, never edited by hand.
     uint64 internal constant DEPLOY_BY = ALMS_SUGGEST - 25 hours;
 
-    /// "deploy by 11 Nov 2026 11:00 UTC", built from DEPLOY_BY so the text can never drift from the check.
+    /// "deploy by 10 Nov 2026 23:00 UTC", built from DEPLOY_BY so the text can never drift from the check.
     function deployByText() internal pure returns (string memory) {
         return string.concat("deploy by ", utc(DEPLOY_BY), " (Alms need 24h notice)");
     }

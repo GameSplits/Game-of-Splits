@@ -28,10 +28,10 @@ contract Chapter0DatesTest is Test {
     function test_datesAreOwnerPick() public pure {
         assertEq(Chapter0Dates.FAIR_START, 1794441600); // 12 Nov 2026 00:00 UTC
         assertEq(Chapter0Dates.FAIR_END, 1794614400); // 14 Nov 2026 00:00 UTC
-        assertEq(Chapter0Dates.ALMS_SUGGEST, 1794484800); // 12 Nov 2026 12:00 UTC
+        assertEq(Chapter0Dates.ALMS_SUGGEST, 1794441600); // 12 Nov 2026 00:00 UTC
         assertEq(Chapter0Dates.ALMS_VOTE, 1794528000); // 13 Nov 2026 00:00 UTC
         assertEq(Chapter0Dates.ALMS_END, 1794657600); // 14 Nov 2026 12:00 UTC
-        assertEq(Chapter0Dates.deployByText(), "deploy by 11 Nov 2026 11:00 UTC (Alms need 24h notice)");
+        assertEq(Chapter0Dates.deployByText(), "deploy by 10 Nov 2026 23:00 UTC (Alms need 24h notice)");
     }
 
     function test_utcFormatting() public pure {
