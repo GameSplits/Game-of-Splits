@@ -187,7 +187,9 @@ async function route(ctx: HandleCtx, input: HandleInput): Promise<HandleOutput &
     const gate = await accountGate(ctx, parsed.action);
     if (gate) return gate;
     const used = ctx.state.used;
-    const orderId = `${parsed.action.kind}:${parsed.action.message.owner}:${parsed.action.message.nonce}`;
+    // Stash shares one nonce across every owner action, so the claim key is owner+nonce only.
+    // Chain id and Stash keep keys apart if the same store is ever reused across deployments.
+    const orderId = `${ctx.cfg.chainId}:${ctx.cfg.stash}:${parsed.action.message.owner}:${parsed.action.message.nonce}`;
     // Held no longer than the order can land: past its deadline the contract refuses it, so a direct play is safe.
     const now = ctx.deps.now();
     const holdMs = Math.max(1_000, Math.min(600_000, Number(parsed.action.message.deadline) * 1000 - now + ORDER_HOLD_MARGIN_MS));
