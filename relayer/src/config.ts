@@ -5,7 +5,7 @@ import { getAddress, type Address, type Hex } from "viem";
 const KEY = /^0x[0-9a-fA-F]{64}$/;
 
 export const TESTNET_CHAIN_ID = 46630;
-export const TESTNET_STASH = getAddress("0x904aA57AC6ee0f4c402b3abc1c3c5A599078660c");
+export const TESTNET_STASH = getAddress("0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3");
 /** Public address of the testnet relayer. The key stays in RELAYER_KEY. */
 export const RELAYER_ADDRESS = getAddress("0x58941E09432D2EF6316FA3b99476e69e68933c94");
 

@@ -2,7 +2,7 @@
 
 The relayer submits six signed Stash calls for the site. It pays gas. It holds no user funds and it cannot create orders: the site signs the payload, and the relayer submits that payload.
 
-Stash on this chain is `0x904aA57AC6ee0f4c402b3abc1c3c5A599078660c`, wired to the 7555 set (FairCore `0xc76d5ED46786e67Fb5925928af18C08da7078Cf0`, Last Arrow `0x14700ccE7f3c0Fc7E1DA3BA303Fe632E52197316`, Sheriff's Seat `0x4f811cAAa659341a4d0066731F2bCa1b60e3F8ef`, USDG `0xA173301d53E1cA0790A6f8d074F515bFc543980c`). The relayer wallet is `0x58941E09432D2EF6316FA3b99476e69e68933c94`. Its key is the env var `RELAYER_KEY` and is never written into the repo.
+Stash on this chain is `0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3`, wired to the 7555 set (FairCore `0xc76d5ED46786e67Fb5925928af18C08da7078Cf0`, Last Arrow `0x14700ccE7f3c0Fc7E1DA3BA303Fe632E52197316`, Sheriff's Seat `0x4f811cAAa659341a4d0066731F2bCa1b60e3F8ef`, USDG `0xA173301d53E1cA0790A6f8d074F515bFc543980c`). The relayer wallet is `0x58941E09432D2EF6316FA3b99476e69e68933c94`. Its key is the env var `RELAYER_KEY` and is never written into the repo.
 
 Shoot and Take are signed by the session key. Withdraw, AuthorizeKey, SetLimit, and RevokeKey are signed by the owner. Every signed action uses the owner's Stash nonce (`nonces(owner)`).
 
@@ -40,7 +40,7 @@ The same paths are served under `/api/...`. CORS allows `GET`, `POST`, and `OPTI
 `GET /health`
 
 ```json
-{ "ok": true, "balanceWei": "10000000000000000", "low": false, "chainId": 46630, "stash": "0x904aA57AC6ee0f4c402b3abc1c3c5A599078660c", "relayer": "0x58941E09432D2EF6316FA3b99476e69e68933c94" }
+{ "ok": true, "balanceWei": "10000000000000000", "low": false, "chainId": 46630, "stash": "0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3", "relayer": "0x58941E09432D2EF6316FA3b99476e69e68933c94" }
 ```
 
 `POST /shoot`
@@ -48,7 +48,7 @@ The same paths are served under `/api/...`. CORS allows `GET`, `POST`, and `OPTI
 ```json
 {
   "chainId": 46630,
-  "stash": "0x904aA57AC6ee0f4c402b3abc1c3c5A599078660c",
+  "stash": "0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3",
   "order": {
     "owner": "0x...",
     "maxPrice": "1150000",
@@ -67,7 +67,7 @@ The same paths are served under `/api/...`. CORS allows `GET`, `POST`, and `OPTI
 ```json
 {
   "chainId": 46630,
-  "stash": "0x904aA57AC6ee0f4c402b3abc1c3c5A599078660c",
+  "stash": "0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3",
   "order": {
     "owner": "0x...",
     "maxPrice": "1500000",
@@ -86,7 +86,7 @@ The same paths are served under `/api/...`. CORS allows `GET`, `POST`, and `OPTI
 ```json
 {
   "chainId": 46630,
-  "stash": "0x904aA57AC6ee0f4c402b3abc1c3c5A599078660c",
+  "stash": "0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3",
   "order": { "owner": "0x...", "amount": "5000000", "nonce": "2", "deadline": "1790000000" },
   "signature": "0x..."
 }
@@ -97,7 +97,7 @@ The same paths are served under `/api/...`. CORS allows `GET`, `POST`, and `OPTI
 ```json
 {
   "chainId": 46630,
-  "stash": "0x904aA57AC6ee0f4c402b3abc1c3c5A599078660c",
+  "stash": "0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3",
   "order": {
     "owner": "0x...",
     "key": "0x...",
@@ -115,7 +115,7 @@ The same paths are served under `/api/...`. CORS allows `GET`, `POST`, and `OPTI
 ```json
 {
   "chainId": 46630,
-  "stash": "0x904aA57AC6ee0f4c402b3abc1c3c5A599078660c",
+  "stash": "0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3",
   "order": { "owner": "0x...", "newLimit": "2000000", "nonce": "4", "deadline": "1790000000" },
   "signature": "0x..."
 }
@@ -126,7 +126,7 @@ The same paths are served under `/api/...`. CORS allows `GET`, `POST`, and `OPTI
 ```json
 {
   "chainId": 46630,
-  "stash": "0x904aA57AC6ee0f4c402b3abc1c3c5A599078660c",
+  "stash": "0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3",
   "order": { "owner": "0x...", "nonce": "5", "deadline": "1790000000" },
   "signature": "0x..."
 }
@@ -166,7 +166,7 @@ Every refusal made before anything was sent carries `sent: false` in the body an
 
 ### EIP-712
 
-Domain: name `Stash`, version `1`, chainId `46630`, verifyingContract `0x904aA57AC6ee0f4c402b3abc1c3c5A599078660c`.
+Domain: name `Stash`, version `1`, chainId `46630`, verifyingContract `0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3`.
 
 Primary types and fields, in this order:
 
@@ -185,7 +185,7 @@ Primary types and fields, in this order:
 | --- | --- | --- |
 | `CHAIN_ID` | yes | `46630` |
 | `RPC_URL` | yes | the testnet RPC, for example `https://rpc.testnet.chain.robinhood.com` |
-| `STASH` | yes | `0x904aA57AC6ee0f4c402b3abc1c3c5A599078660c` |
+| `STASH` | yes | `0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3` |
 | `RELAYER_KEY` | yes | hex key for `0x58941E09432D2EF6316FA3b99476e69e68933c94`. Dashboard or shell only |
 | `HEALTHCHECK_URL` | no | POST target used when the balance is under 0.005 ETH |
 | `PRIORITY_GWEI` | no | priority fee in gwei. Default `0.02` |
