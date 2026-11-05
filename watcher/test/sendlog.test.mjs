@@ -80,6 +80,7 @@ test("OIDC: a token from the keeper workflow on main passes; anything else fails
   assert.equal((await verifyGithubOidc(jwt(good, { key: other }), base, opts)).reason, "bad signature");
   assert.equal((await verifyGithubOidc(jwt(good, { kid: "nope" }), base, opts)).reason, "unknown kid");
   assert.equal((await verifyGithubOidc("x.y", base, opts)).ok, false);
+  for (const odd of [null, 7, "x", [1]]) assert.equal((await verifyGithubOidc(jwt(odd), base, opts)).reason, "malformed token", JSON.stringify(odd));
 });
 
 test("OIDC required: entries without a valid token are refused; a new commit sha alerts once", async () => {
@@ -94,4 +95,5 @@ test("OIDC required: entries without a valid token are refused; a new commit sha
   assert.equal((await post(cfg, st, entry(2, H2), { oidc: jwt({ ...good, sha: "def456" }) }, deps)).status, 200);
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0][1], "keeper code changed");
+  assert.equal((await post(cfg, st, entry(3, H2), { oidc: jwt(null) }, deps)).status, 401, "null claims get a clean 401");
 });
