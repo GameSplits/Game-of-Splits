@@ -22,12 +22,13 @@ HPID=$!
 trap 'kill $APID $HPID 2>/dev/null || true; rm -rf "$TMP"' EXIT
 for i in $(seq 1 60); do "$F/cast" client --rpc-url "$L" 2>/dev/null | grep -qi anvil && break; sleep 1; done
 
-# fresh keeper key, kept in env only
+# fresh keeper key, kept in env only (address derived in node from env, never passed on argv)
 KEEPER_KEY=0x$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
-KEEPER=$("$F/cast" wallet address "$KEEPER_KEY")
+export KEEPER_KEY
+KEEPER=$(cd "$KEEPER_DIR" && node -e 'import { privateKeyToAccount } from "viem/accounts"; console.log(privateKeyToAccount(process.env.KEEPER_KEY).address)')
 "$F/cast" rpc anvil_setBalance "$KEEPER" 0x56BC75E2D63100000 --rpc-url "$L" >/dev/null
 SEED_SECRET=0x$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
-export KEEPER_KEY SEED_SECRET
+export SEED_SECRET
 
 NOW=$("$F/cast" block latest --field timestamp --rpc-url "$L")
 GEN=$(( NOW / 1800 * 1800 ))
@@ -77,8 +78,19 @@ run DRY_RUN=0 >/dev/null
 [ "$(rd 'nextSeedTip()(bytes32)')" != 0x0000000000000000000000000000000000000000000000000000000000000000 ] || fail "no rotation"
 echo "nextSeedFrom $(rd 'nextSeedFrom()(uint64)')"
 
-echo "== 5. retry path: an RPC that is down for every try alerts (webhook) and exits clean"
-( cd "$KEEPER_DIR" && RPC_URL=http://127.0.0.1:1 CHAIN_ID=31337 ALLOW_LOCAL_CHAIN=1 RAT=$RAT ONCE=1 node src/ratrunner.mjs ) 2>&1 | grep -q "tick failed" || fail "rpc down not reported"
+echo "== 5. retry path: an RPC that is down for every try alerts (webhook) and exits 1"
+HOOK_BEFORE=$(wc -l < "$TMP/hook.jsonl")
+set +e
+( cd "$KEEPER_DIR" && RPC_URL=http://127.0.0.1:1 CHAIN_ID=31337 ALLOW_LOCAL_CHAIN=1 RAT=$RAT ONCE=1 \
+  RPC_FAIL_ALERT_AFTER=1 ALERT_WEBHOOK_URL=http://127.0.0.1:$HOOK_PORT/hook \
+  DRY_RUN=1 node src/ratrunner.mjs ) >"$TMP/down.log" 2>&1
+EC=$?
+set -e
+[ "$EC" = 1 ] || fail "rpc down should exit 1 (got $EC)"
+grep -qE "startup failed|tick failed" "$TMP/down.log" || fail "rpc down not reported"
+HOOK_AFTER=$(wc -l < "$TMP/hook.jsonl")
+[ "$HOOK_AFTER" -gt "$HOOK_BEFORE" ] || fail "no webhook alert on rpc down"
+grep -q '"title":"rat runner"' "$TMP/hook.jsonl" || fail "webhook body missing rat runner alert"
 
 echo "== 6. keeper misses round 4's T+3m window: the runner alerts instead of sending"
 warp $(( GEN + 3*1800 + 60 ))

@@ -7,7 +7,7 @@
 // for i = CHAIN_LEN..1, so the committed tip is s_0 and each reveal is the preimage of the current onchain tip.
 // The runner is stateless: it finds the next preimage by looking the onchain tip up in generations 0..MAX_GEN.
 //
-// DRY_RUN is on unless DRY_RUN=0. Nothing here logs a secret (RPC URLs, keys, webhook URLs are redacted).
+// DRY_RUN is on unless DRY_RUN=0. Nothing here logs a secret (RPC URLs, keys, seeds, webhook URLs are redacted).
 //
 //   RPC_URL=... CHAIN_ID=46630 RAT=0x... node src/ratrunner.mjs                 (dry run, prints the plan)
 //   ... KEEPER_KEY=<masked> SEED_SECRET=<masked> DRY_RUN=0 ALERT_WEBHOOK_URL=... node src/ratrunner.mjs
@@ -22,6 +22,7 @@ import { pathToFileURL } from "node:url";
 import { redact } from "./redact.mjs";
 import { logSend } from "./sendlog.mjs";
 import { planRound, PAIR_DEADLINE, STATUS, ZERO } from "./lockwatch.mjs";
+import { feePlan, GAS_CAP } from "./logic.mjs";
 
 export const PAIR_STEPS = 256n;
 export const DEFAULT_CHAIN_LEN = 2048; // 48 rounds a day: about 42 days per generation
@@ -104,11 +105,13 @@ export function planKeeperRound({ r, round, closeTime, now, nowL2, lastSeedRound
   return planRound({ round, closeTime, now, nowL2, fallback: false });
 }
 
-/** Should the next seed chain be committed now? Returns { gen, fromRound } or null. */
-export function planRotation({ found, cur, nextSeedTip, rotateAt }) {
+/** Should the next seed chain be committed now? Returns { gen, fromRound }, { refuse, nextGen }, or null. */
+export function planRotation({ found, cur, nextSeedTip, rotateAt, maxGen = 8 }) {
   if (!found || nextSeedTip !== ZERO) return null;
   if (found.remaining >= rotateAt) return null;
-  return { gen: found.gen + 1, fromRound: BigInt(cur) + 2n };
+  const nextGen = found.gen + 1;
+  if (nextGen > maxGen) return { refuse: true, nextGen };
+  return { gen: nextGen, fromRound: BigInt(cur) + 2n };
 }
 
 // ------------------------------------------------------------------ retries and alerts
@@ -181,6 +184,7 @@ export function loadRunnerConfig(env) {
     blockWaits: Number(env.BLOCK_WAITS || 10), // re-plans while waiting for the L2 block after a reveal
     blockWaitMs: Number(env.BLOCK_WAIT_MS || 300),
     maxFeeWei: BigInt(Math.round(Number(env.MAX_FEE_GWEI || 1) * 1e9)),
+    rpcFailAlertAfter: Number(env.RPC_FAIL_ALERT_AFTER || 3),
     webhookUrl: env.ALERT_WEBHOOK_URL ?? "",
     watcherUrl: env.WATCHER_URL ?? "",
     sendlogSecret: env.SENDLOG_SECRET ?? "",
@@ -201,6 +205,7 @@ export function loadRunnerConfig(env) {
   if (!(cfg.rotateAt >= 1 && cfg.rotateAt < cfg.chainLen)) throw new Error("ROTATE_AT out of range");
   if (!(cfg.pollMs >= 500)) throw new Error("POLL_MS must be at least 500");
   if (!(cfg.tries >= 1 && cfg.tries <= 10)) throw new Error("RETRIES must be 1..10");
+  if (!(cfg.rpcFailAlertAfter >= 1 && cfg.rpcFailAlertAfter <= 100)) throw new Error("RPC_FAIL_ALERT_AFTER must be 1..100");
   return cfg;
 }
 
@@ -211,8 +216,17 @@ const asRound = (t) => ({ pairingSeed: t[1], entrants: t[2], status: t[10], seed
 const read = (c, cfg, functionName, args = []) =>
   c.pub.readContract({ address: cfg.rat, abi: ratRunnerAbi, functionName, args });
 
-/** Simulate, then (live) sign, optionally send-log, broadcast, wait. Throws on revert; marks a sim revert fatal. */
-async function send(c, cfg, functionName, args, log) {
+/** Refuse to sign if the RPC (or anything else) tried to change chainId, gas or fees. */
+export function assertPinnedRequest(req, cfg) {
+  if (Number(req.chainId) !== cfg.chainId) throw new Error(`refusing to sign: chainId ${req.chainId}`);
+  if (req.gas === undefined || req.gas > GAS_CAP) throw new Error(`refusing to sign: gas ${req.gas}`);
+  if (req.maxFeePerGas === undefined || req.maxFeePerGas > cfg.maxFeeWei) throw new Error(`refusing to sign: maxFee ${req.maxFeePerGas}`);
+  if ((req.maxPriorityFeePerGas ?? 0n) > cfg.maxFeeWei) throw new Error(`refusing to sign: tip ${req.maxPriorityFeePerGas}`);
+  if (req.nonce === undefined || req.nonce === null) throw new Error("refusing to sign: missing nonce");
+}
+
+/** Simulate, then (live) pin chainId/nonce/gas/fees, assert, sign, optionally send-log, broadcast, wait. */
+export async function send(c, cfg, functionName, args, log) {
   try {
     await c.pub.simulateContract({ address: cfg.rat, abi: ratRunnerAbi, functionName, args, account: c.address });
   } catch (e) {
@@ -221,20 +235,37 @@ async function send(c, cfg, functionName, args, log) {
     throw err;
   }
   if (cfg.dryRun) {
-    log(`dry run, would call ${functionName}(${args.map(String).join(", ")})`);
+    // never print a reveal seed, even after the round is closed
+    const shown = functionName === "revealSeed" ? `${args[0]}, <seed>` : args.map(String).join(", ");
+    log(`dry run, would call ${functionName}(${shown})`);
     return { dry: true };
   }
-  let hash;
+  const data = encodeFunctionData({ abi: ratRunnerAbi, functionName, args });
+  const base = (await c.pub.getBlock()).baseFeePerGas ?? 0n;
+  const fees = feePlan(base, cfg.maxFeeWei);
+  if (fees.skip) throw new Error(fees.skip);
+  const nonce = await c.pub.getTransactionCount({ address: c.address });
+  let gas = await c.pub.estimateGas({ account: c.address, to: cfg.rat, data });
+  if (gas > GAS_CAP) throw new Error(`gas cap: estimate ${gas} > ${GAS_CAP}`);
+  // pass every field explicitly so viem never asks the RPC to fill chainId or gas
+  const req = await c.wallet.prepareTransactionRequest({
+    account: c.account,
+    to: cfg.rat,
+    data,
+    value: 0n,
+    chainId: cfg.chainId,
+    nonce,
+    gas,
+    maxFeePerGas: fees.maxFeePerGas,
+    maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+  });
+  assertPinnedRequest(req, cfg);
+  const raw = await c.account.signTransaction(req);
+  const hash = keccak256(raw);
   if (cfg.watcherUrl && cfg.sendlogSecret) {
-    const data = encodeFunctionData({ abi: ratRunnerAbi, functionName, args });
-    const req = await c.wallet.prepareTransactionRequest({ to: cfg.rat, data, maxFeePerGas: cfg.maxFeeWei });
-    const raw = await c.account.signTransaction(req);
-    hash = keccak256(raw);
     await logSend(cfg, { chainId: cfg.chainId, nonce: req.nonce, hash, to: cfg.rat, selector: data.slice(0, 10), sentAt: Math.floor(Date.now() / 1000) });
-    await c.pub.sendRawTransaction({ serializedTransaction: raw });
-  } else {
-    hash = await c.wallet.writeContract({ address: cfg.rat, abi: ratRunnerAbi, functionName, args, maxFeePerGas: cfg.maxFeeWei });
   }
+  await c.pub.sendRawTransaction({ serializedTransaction: raw });
   const rcpt = await c.pub.waitForTransactionReceipt({ hash, timeout: 60_000 });
   if (rcpt.status !== "success") throw new Error(`${functionName} reverted onchain ${hash}`);
   log(`sent ${functionName} ${hash}`);
@@ -280,8 +311,10 @@ export async function tick(c, cfg, { book, alert, seen = new Set(), log = consol
       const found = book.next(activeTip);
       if (!found) await warn(`unknown:${activeTip}`, "emergency", "seed chain", "onchain seed tip is not from this SEED_SECRET, reveals will fail");
       else {
-        const rot = planRotation({ found, cur, nextSeedTip: tips.nextSeedTip, rotateAt: cfg.rotateAt });
-        if (rot) {
+        const rot = planRotation({ found, cur, nextSeedTip: tips.nextSeedTip, rotateAt: cfg.rotateAt, maxGen: cfg.maxGen });
+        if (rot?.refuse) {
+          await warn(`maxgen:${rot.nextGen}`, "emergency", "seed chain", `cannot rotate past MAX_GEN (${cfg.maxGen})`);
+        } else if (rot) {
           await guarded("commitSeedChain", () => send(c, cfg, "commitSeedChain", [book.tipOf(rot.gen), rot.fromRound], log));
           results.push({ action: "commitSeedChain", gen: rot.gen });
         }
@@ -372,9 +405,16 @@ export function makeClients(cfg) {
     rpcUrls: { default: { http: [cfg.rpcUrl] } },
   });
   const pub = createPublicClient({ chain, transport: http(cfg.rpcUrl) });
-  const account = cfg.key ? privateKeyToAccount(cfg.key) : undefined;
+  let account;
+  if (cfg.key) {
+    try {
+      account = privateKeyToAccount(cfg.key);
+    } catch {
+      throw new Error("invalid KEEPER_KEY");
+    }
+  }
   const wallet = account ? createWalletClient({ account, chain, transport: http(cfg.rpcUrl) }) : null;
-  return { pub, wallet, account, address: account?.address };
+  return { pub, wallet, account, address: account?.address, chain };
 }
 
 async function main() {
@@ -382,20 +422,46 @@ async function main() {
   const c = makeClients(cfg);
   const book = cfg.seedSecret ? makeSeedBook(cfg.seedSecret, cfg.chainLen, cfg.maxGen) : null;
   const alert = makeAlertHook(cfg);
+  try {
+    const rpcChainId = Number(await c.pub.getChainId());
+    if (rpcChainId !== cfg.chainId) throw new Error(`RPC chainId ${rpcChainId} != configured ${cfg.chainId}`);
+  } catch (e) {
+    const msg = redact(e.shortMessage ?? e.message, [cfg.rpcUrl, cfg.webhookUrl]);
+    console.log(`startup failed: ${msg}`);
+    await alert("high", "rat runner", `startup RPC/chain check failed: ${msg}`);
+    throw e;
+  }
   if (!cfg.dryRun) {
     const k = await read(c, cfg, "keeper");
     if (k.toLowerCase() !== c.address.toLowerCase()) throw new Error("KEEPER_KEY is not the onchain keeper");
   }
   const seen = new Set();
+  let fails = 0;
   console.log(`rat runner on chain ${cfg.chainId}, ${cfg.dryRun ? "dry run" : "live"}, webhook ${cfg.webhookUrl ? "on" : "off"}`);
   for (;;) {
     if (seen.size > 1000) seen.clear();
+    let tickOk = true;
     try {
       await tick(c, cfg, { book, alert, seen });
+      fails = 0;
+      seen.delete("rpc-fail");
     } catch (e) {
-      console.log(`tick failed: ${redact(e.shortMessage ?? e.message, [cfg.rpcUrl, cfg.webhookUrl])}`);
+      tickOk = false;
+      fails += 1;
+      const msg = redact(e.shortMessage ?? e.message, [cfg.rpcUrl, cfg.webhookUrl]);
+      console.log(`tick failed: ${msg}`);
+      if (fails >= cfg.rpcFailAlertAfter) {
+        if (!seen.has("rpc-fail")) {
+          seen.add("rpc-fail");
+          const ok = await alert("high", "rat runner", `RPC/tick failed ${fails} times in a row: ${msg}`);
+          if (!ok) seen.delete("rpc-fail");
+        }
+      }
     }
-    if (cfg.once) return;
+    if (cfg.once) {
+      if (!tickOk) process.exit(1);
+      return;
+    }
     await new Promise((res) => setTimeout(res, cfg.pollMs));
   }
 }
