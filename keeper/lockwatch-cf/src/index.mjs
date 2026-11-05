@@ -4,7 +4,7 @@ import {
   calldata, getBlock, ethCallOk, ethCall, decodeRounds, decodeUint,
   ethGetTransactionCount, ethEstimateGas, ethSendRawTransaction, waitReceipt,
 } from "./rpc.mjs";
-import { makeAlerter } from "./alerts.mjs";
+import { makeAlerter, PUSHOVER_API } from "./alerts.mjs";
 import { signEip1559Tx, accountAddress } from "./wallet.mjs";
 
 const LOG_CAP = 200;
@@ -54,7 +54,28 @@ export class LockwatchDO extends DurableObject {
         const logs = (await this.ctx.storage.get("logs")) || [];
         return json({ ok: true, logs });
       }
-      return json({ ok: true, endpoints: ["/start", "/stop", "/tick", "/status", "/logs"] });
+      if (path === "/test-alert" && (request.method === "POST" || request.method === "GET")) {
+        const cfg = this.cfg();
+        if (!(cfg.pushoverToken && cfg.pushoverGroup)) {
+          return json({ ok: false, error: "no alert channel configured" }, 400);
+        }
+        const body = new URLSearchParams({
+          token: cfg.pushoverToken,
+          user: cfg.pushoverGroup,
+          title: "GoS lockwatch testnet test",
+          message: "Worker alert path smoke test (normal priority)",
+          priority: "0",
+        });
+        const r = await fetch(PUSHOVER_API, { method: "POST", body, signal: AbortSignal.timeout(10_000) });
+        let j = null;
+        try { j = await r.json(); } catch { j = null; }
+        if (!r.ok || j?.status !== 1) {
+          return json({ ok: false, error: `pushover refused: HTTP ${r.status}` }, 502);
+        }
+        await this.pushLog("test-alert delivered");
+        return json({ ok: true, delivered: true, status: j.status });
+      }
+      return json({ ok: true, endpoints: ["/start", "/stop", "/tick", "/status", "/logs", "/test-alert"] });
     } catch (e) {
       try { await this.pushLog(`error: ${e.message}`); } catch {}
       return json({ ok: false, error: e.message, stack: String(e.stack || "") }, 500);
@@ -210,7 +231,7 @@ export default {
       if (!env.LOCKWATCH) {
         return json({ ok: false, error: "LOCKWATCH binding missing" }, 500);
       }
-      const name = `lockwatch-${env.CHAIN_ID || "x"}`;
+      const name = `lockwatch-${env.CHAIN_ID || "x"}-v2`;
       let stub;
       if (typeof env.LOCKWATCH.getByName === "function") {
         stub = env.LOCKWATCH.getByName(name);
