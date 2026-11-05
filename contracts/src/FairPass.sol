@@ -66,7 +66,7 @@ contract FairPass is IFairPass, SafeHandover, ReentrancyGuard {
         token.safeTransferFrom(msg.sender, address(this), amt);
         if (token.balanceOf(address(this)) - before != amt) revert TransferMismatch();
         if (!_seen[t]) {
-            // First lock of this address. The list only grows when the play token changes between Fairs.
+            // First lock of this address. The list only grows when the play token changes between chapters.
             _seen[t] = true;
             lockedTokens.push(t);
         }
@@ -74,8 +74,8 @@ contract FairPass is IFairPass, SafeHandover, ReentrancyGuard {
     }
 
     /// @notice Any time from 24 hours after locking. Never blocked by a pause, the owner or GameConfig: it pays back the
-    ///         recorded token and amount. Unlocking forfeits the Alms vote for any Fair not yet voted on and the
-    ///         "held all Fair" Marks multiplier.
+    ///         recorded token and amount. Unlocking forfeits the Alms vote for any Chapter not yet voted on and the
+    ///         "held all chapter" Marks multiplier.
     function unlock() external nonReentrant {
         Pass memory p = passes[msg.sender];
         if (p.at == 0) revert NoPass();

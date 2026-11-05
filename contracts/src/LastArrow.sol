@@ -150,7 +150,7 @@ contract LastArrow is ReentrancyGuard {
     // ================================================================== play
 
     /// @notice Fire a shot. USDG (exactly the current price, at most `maxPrice`) is pulled from msg.sender; the shot
-    ///         is credited to `player` (pass address(0) for yourself). `player` must hold a Fair Pass.
+    ///         is credited to `player` (pass address(0) for yourself). `player` must hold a Pass.
     ///         Rules against bots: no two shots in a row by the same player, at most one shot per L2 block.
     ///         K16-D-A02: `expectedRound` is the round you mean to shoot in (`nextShotRound()` when you sign). If the
     ///         round you saw ended before the tx lands, the shot would open a new round instead, so it reverts.

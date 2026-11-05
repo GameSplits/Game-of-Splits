@@ -44,8 +44,8 @@ contract FairCore is SafeHandover, ReentrancyGuard {
     uint256 public constant DAILY_SWAP_CAP = 3_000e6; // per ledger per UTC day (busiest example day needs ~2,200)
     uint256 public constant MAX_WINNERS = 12;
     uint256 public constant MAINNET_TIMELOCK = 48 hours;
-    /// @notice A Fair lasts at most 35 days, so a mistyped `end` (say, milliseconds) can't keep a Fair running for good
-    ///         and with it block GameConfig updates, which execute only between Fairs.
+    /// @notice A chapter lasts at most 35 days, so a mistyped `end` (say, milliseconds) can't keep a chapter running for good
+    ///         and with it block GameConfig updates, which execute only between chapters.
     uint64 public constant MAX_FAIR_LENGTH = 35 days;
     address public constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
@@ -112,11 +112,11 @@ contract FairCore is SafeHandover, ReentrancyGuard {
     mapping(uint256 => Fair) public fairs;
     uint256 public fairCount;
     mapping(uint256 => mapping(address => bool)) public playedIn;
-    /// @notice A5-01: gross USDG shot by (credited to) a player in a Fair.
+    /// @notice A5-01: gross USDG shot by (credited to) a player in a chapter.
     mapping(uint256 => mapping(address => uint256)) public spentIn;
-    /// @notice K16-D-A01: USDG awarded to a player from rounds that took their first shot in a Fair.
+    /// @notice K16-D-A01: USDG awarded to a player from rounds that took their first shot in a chapter.
     mapping(uint256 => mapping(address => uint256)) public wonIn;
-    /// @notice The Fair a booth round belongs to (the Fair of its first shot).
+    /// @notice The chapter a booth round belongs to (the chapter of its first shot).
     mapping(address => mapping(uint256 => uint256)) public roundFair;
 
     // ------------------------------------------------------------------ prize money
@@ -128,7 +128,7 @@ contract FairCore is SafeHandover, ReentrancyGuard {
 
     // ------------------------------------------------------------------ Greenwood ledgers (USDG)
     mapping(uint256 => uint256) public almsByFair;
-    /// @notice How much of a Fair's Alms came carried from earlier zero-vote Fairs (for the "includes N carried" label).
+    /// @notice How much of a chapter's Alms came carried from earlier zero-vote chapters (for the "includes N carried" label).
     mapping(uint256 => uint256) public almsCarriedIn;
     /// @notice K16-A05: released Alms whose transfer to the Alms Safe failed (say, a USDG blocklist). Still owed;
     ///         anyone can push it to the current Alms Safe with flushAlms().
@@ -283,7 +283,7 @@ contract FairCore is SafeHandover, ReentrancyGuard {
 
     // ================================================================== views
 
-    /// @notice The Fair running now, if any. Fairs never overlap, so only the newest two can be live.
+    /// @notice The chapter running now, if any. chapters never overlap, so only the newest two can be live.
     function activeFair() public view returns (bool active, uint256 fairId) {
         uint256 n = fairCount;
         for (uint256 i; i < 2 && i < n; ++i) {
@@ -323,7 +323,7 @@ contract FairCore is SafeHandover, ReentrancyGuard {
         return vaultLiqUsdg + vaultFairsBurnUsdg;
     }
 
-    /// @notice K16-D-A01: what a player has really put into a Fair: gross shots minus winnings from that Fair's rounds
+    /// @notice K16-D-A01: what a player has really put into a chapter: gross shots minus winnings from that chapter's rounds
     ///         (never below 0). Washing a shot through a round you win back no longer counts. AlmsVote's minimum uses it.
     function netSpentIn(uint256 fairId, address player) external view returns (uint256) {
         uint256 s = spentIn[fairId][player];
@@ -658,7 +658,7 @@ contract FairCore is SafeHandover, ReentrancyGuard {
         return false;
     }
 
-    /// @notice A Fair whose vote got zero votes: its Alms move to the next Fair and add to that Fair's vote.
+    /// @notice A chapter whose vote got zero votes: its Alms move to the next chapter and add to that chapter's vote.
     ///         Only AlmsVote can call this; nobody can choose where unvoted Alms go.
     function carryAlms(uint256 fairId) external nonReentrant returns (uint256 amount) {
         if (msg.sender != almsVote) revert NotAlmsVote();
@@ -747,18 +747,18 @@ contract FairCore is SafeHandover, ReentrancyGuard {
         emit RatchetReset(newAnchor, anchorEpoch);
     }
 
-    /// @notice Schedule a Fair. Ids are sequential; Fairs never overlap; a Fair can't change once it has started.
+    /// @notice Schedule a chapter. Ids are sequential; chapters never overlap; a chapter can't change once it has started.
     function setFair(uint256 fairId, uint64 start, uint64 end) external onlyOwner {
         if (end <= start) revert BadFair();
         if (end - start > MAX_FAIR_LENGTH) revert BadFair();
         if (fairId < fairCount) {
             if (block.timestamp >= fairs[fairId].start) revert FairStarted();
-            // Moving a Fair would leave its Alms windows pointing at the old dates.
+            // Moving a chapter would leave its Alms windows pointing at the old dates.
             if (almsVote.code.length != 0 && IAlmsWindows(almsVote).windowsSet(fairId)) revert WindowsSet();
         } else if (fairId != fairCount) {
             revert BadFair();
         } else {
-            // At most one Fair scheduled ahead: activeFair only looks at the newest two.
+            // At most one Chapter scheduled ahead: activeFair only looks at the newest two.
             if (fairId > 1 && block.timestamp < fairs[fairId - 2].end) revert BadFair();
             fairCount = fairId + 1;
         }

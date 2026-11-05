@@ -16,7 +16,7 @@ import {IIdentityRegistry, IReputationRegistry} from "./interfaces/I8004.sol";
 ///         the 10 USDG pot less a 5% rake (40% of it to the Sharing Pot, 60% to `rakeSink`), and every result is written
 ///         to the outlaw's ERC-8004 reputation. Registering an outlaw locks a licence in GameConfig's play token
 ///         (GameConfig is the Safe-owned config with a 7-day timelock); it always comes back in the token and amount
-///         it was locked in. The controller also needs a Fair Pass (the same one as the other games, read from
+///         it was locked in. The controller also needs a Pass (the same one as the other games, read from
 ///         FairCore) to register and to enter a round. An operator may send `enter`; the pass checked is the
 ///         controller's. Committing and revealing an entry already made, and withdrawing, retiring, unbonding and
 ///         claiming a bond, do not check the pass, so a lapsed pass cannot trap the licence, the bond or the budget.
@@ -372,7 +372,7 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
     // ================================================================== outlaw lifecycle
 
     /// @notice Register an ERC-8004 agent you own (or are the agent wallet of) as an outlaw. The caller becomes the
-    ///         controller and must hold a Fair Pass. Locks the licence in GameConfig's play token; reverts
+    ///         controller and must hold a Pass. Locks the licence in GameConfig's play token; reverts
     ///         TokenChanged if it isn't `expectedToken` or costs more than `maxLicence`.
     function registerOutlaw(uint256 agentId, address operator, address expectedToken, uint256 maxLicence)
         external
@@ -383,7 +383,7 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
     }
 
     /// @notice One-transaction onboarding: mint a new ERC-8004 identity, hand it to the caller, register it.
-    ///         The caller becomes the controller and must hold a Fair Pass. The registry clears the agent wallet on
+    ///         The caller becomes the controller and must hold a Pass. The registry clears the agent wallet on
     ///         that transfer; set it again afterwards if wanted.
     function registerOutlawNew(string calldata agentURI, address operator, address expectedToken, uint256 maxLicence)
         external
@@ -552,7 +552,7 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
     // ================================================================== play
 
     /// @notice Enter the round taking entries now. Reserves STAKE from the outlaw's balance. The controller must
-    ///         hold a Fair Pass now; the caller may be the controller or the operator.
+    ///         hold a Pass now; the caller may be the controller or the operator.
     ///         `entropy` must be the one-click nonce `keccak256(abi.encode(agentId, roundId))`. Those nonces
     ///         are XORed into the accumulator, so the accumulator itself does not depend on entry order.
     ///         The shuffle still walks the `entrants` array in entry order, so order can change who meets whom.

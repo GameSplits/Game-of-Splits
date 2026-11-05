@@ -1,6 +1,6 @@
 # Game of Splits
 
-A $wif / USDG game fair on Robinhood Chain (World is Flat hackathon). Players lock 5,000 $wif in a **Fair Pass**
+A $wif / USDG game chapter on Robinhood Chain (World is Flat hackathon). Players lock 5,000 $wif in a **Pass**
 (24h minimum hold) and pay USDG to play booths: **Last Arrow** (a rising-price, last-shot-wins clock) and the
 **Sheriff's Seat** (a daily throne). The same pass is required at the **Outlaw Camp** (Robin Among Thieves): the
 controller must hold one to register an outlaw and to enter a round. The camp's own licence (1,000 play token,
@@ -27,7 +27,7 @@ Note: The frontend repo is private. Judges for the WIF hackathon will be invited
 ```
 contracts/      Foundry project (solc 0.8.38, via-IR, OZ 5.4.0, forge-std 1.11.0 as git submodules)
   src/          GameConfig, FairCore, FairPass, LastArrow, SheriffsSeat, AlmsVote, LocksleyVault, FairLens, routes/, testnet/
-  test/         unit, invariant, audit PoCs, fork (live Robinhood RPC), sim (Fair 0 on a local fork)
+  test/         unit, invariant, audit PoCs, fork (live Robinhood RPC), sim (Chapter 0 on a local fork)
   script/       Deploy.s.sol (Safe checks + pinned Safe address), SafeAccept.s.sol, Mainnet.s.sol, e2e/*.sh
   RUNBOOK_KEEPER.md   keeper/watcher incident runbook and go-live checklist
 keeper/         hourly keeper (GitHub Actions in its own repo; DRY_RUN unless DRY_RUN=0), viem only
@@ -46,7 +46,7 @@ cd ../keeper && npm ci --ignore-scripts && npm test
 cd ../watcher && npm ci --ignore-scripts && npm test
 cd .. && bash e2e/keeper_watcher.sh           # Foundry 1.5.x (1.8.x emulates ArbSys on Robinhood forks)
 bash contracts/script/e2e/accept_flow.sh      # deploy + Safe accept rehearsal
-bash contracts/script/e2e/fair0_sim.sh        # Fair 0 money simulation (Foundry 1.5.x)
+bash contracts/script/e2e/fair0_sim.sh        # Chapter 0 money simulation (Foundry 1.5.x)
 ```
 
 Every package has a `.env.example` listing its settings. No secrets in the repo: keys go through a masked secret entry.

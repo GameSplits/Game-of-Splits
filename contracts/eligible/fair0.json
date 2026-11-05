@@ -1,5 +1,5 @@
 {
-  "note": "Fair 0 allowlist (30 Oct 2026): the top 3 donate.gg registered charities (not campaigns) by total raised that are onboarded for payouts. charityId = the donate.gg configId.",
+  "note": "Chapter 0 allowlist (30 Oct 2026): the top 3 donate.gg registered charities (not campaigns) by total raised that are onboarded for payouts. charityId = the donate.gg configId.",
   "source": "https://www.donate.gg/charities (Sort charities: Most raised, orderMode topDonations), read 30 Oct 2026",
   "charities": [
     { "rank_onboarded": 1, "name": "Lung Cancer Foundation of America", "slug": "lung-cancer-foundation-of-america", "taxId": "20-8730839", "raised": "$1m", "status": "ACTIVE_ONBOARDED", "url": "https://www.donate.gg/charities/lung-cancer-foundation-of-america", "configId": "0xb02173170bada3eb8162396b27744f9c5ac99bed3a632b1c4d2bc9b1b366b0e8" },

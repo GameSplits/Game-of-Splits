@@ -25,13 +25,13 @@ Run: `slither . --filter-paths "lib/|test/|script/|src/testnet/" --exclude-infor
 | Finding | Where | Verdict |
 |---|---|---|
 | incorrect-equality | `FairCore.pausedBetween` (`end == 0` for a pause still running) | Intended sentinel: an open pause has no end yet, so it counts up to `to`. |
-| unused-return | `AlmsVote.finalize` reads only `end` from `core.fairs(fairId)` | Only the end is needed for the 7-day never-set fallback; `end == 0` (unknown Fair) reverts. |
+| unused-return | `AlmsVote.finalize` reads only `end` from `core.fairs(fairId)` | Only the end is needed for the 7-day never-set fallback; `end == 0` (unknown Chapter) reverts. |
 
 ## v3.5 re-run (19 medium/high results: the 18 above plus one)
 
 | Finding | Where | Verdict |
 |---|---|---|
-| unused-return | `AlmsVote.clearWindows` reads only `start` from `core.fairs(fairId)` | Only the start is needed: clearing is allowed only before the Fair starts. A Fair with windows always exists (W1), so `start` is never the zero of an unknown Fair. |
+| unused-return | `AlmsVote.clearWindows` reads only `start` from `core.fairs(fairId)` | Only the start is needed: clearing is allowed only before the chapter starts. A chapter with windows always exists (W1), so `start` is never the zero of an unknown Chapter. |
 
 ## Stash
 

@@ -119,7 +119,7 @@ contract SheriffsSeat is ReentrancyGuard {
     // ================================================================== play
 
     /// @notice Take the seat. USDG (the current price, at most `maxPrice`) is pulled from msg.sender; the seat and its
-    ///         seconds go to `player` (address(0) = yourself), who must hold a Fair Pass.
+    ///         seconds go to `player` (address(0) = yourself), who must hold a Pass.
     function take(uint256 maxPrice, address player, string calldata message, uint8 color)
         external
         nonReentrant

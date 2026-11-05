@@ -8,8 +8,8 @@ Times below are UTC. The play token and the buy token on this deployment are tWI
 
 1. Open https://testnet.gameofsplits.fun and connect a wallet on chain 46630. The public RPC is `https://rpc.testnet.chain.robinhood.com`.
 2. Open [Test tokens](https://testnet.gameofsplits.fun/faucet). The header link is Test tokens. `faucet()` on tUSDG mints 1,000 tUSDG. `faucet()` on tWIF mints 50,000 tWIF. Each address can mint each token once an hour. You need tWIF for a pass and tUSDG to shoot.
-3. Open [Fair Pass](https://testnet.gameofsplits.fun/pass). This is the Toll Gate on the map. Approve tWIF and lock 5,000. The hold is 24 hours. Unlock returns 5,000 tWIF to the same wallet. A lock does not need a live Fair, so this transaction still works after Fair 0.
-4. Open [Last Arrow](https://testnet.gameofsplits.fun/last-arrow) and [Sheriff's Seat](https://testnet.gameofsplits.fun/sheriffs-seat). Read the price, the clock and the purse. A new shot or take reverts `NoActiveFair` until the Safe sets another Fair. Fair 0 ran from 30 Oct 2026 14:00 UTC to 30 Oct 2026 20:00 UTC. `salesPaused()` was false on 31 Oct 2026 UTC. The revert on a new shot is `NoActiveFair`.
+3. Open [Pass](https://testnet.gameofsplits.fun/pass). This is the Toll Gate on the map. Approve tWIF and lock 5,000. The hold is 24 hours. Unlock returns 5,000 tWIF to the same wallet. A lock does not need a live Chapter, so this transaction still works after Chapter 0.
+4. Open [Last Arrow](https://testnet.gameofsplits.fun/last-arrow) and [Sheriff's Seat](https://testnet.gameofsplits.fun/sheriffs-seat). Read the price, the clock and the purse. A new shot or take reverts `NoActiveFair` until the Safe sets another Chapter. Chapter 0 ran from 30 Oct 2026 14:00 UTC to 30 Oct 2026 20:00 UTC. `salesPaused()` was false on 31 Oct 2026 UTC. The revert on a new shot is `NoActiveFair`.
 5. Open [Alms](https://testnet.gameofsplits.fun/alms), [Bonfire](https://testnet.gameofsplits.fun/bonfire) and [Locksley Vault](https://testnet.gameofsplits.fun/vault). These pages read the Greenwood ledgers. The vault launcher is the zero address, so the page cannot pull funds.
 6. Open [Robin Among Thieves](https://testnet.gameofsplits.fun/robin). `entriesPaused()` is true on the deployed contract, so `enter` reverts `EntriesArePaused`. You can still read the licence amount, which is 1,000 tWIF, and the rake sink, which is RakeBuyer.
 7. Skip the Trading Post as a proof. https://testnet.gameofsplits.fun/trading-post is a preview. FeeSplitter is not in the 46630 file, so that page does not move these contracts.
@@ -32,7 +32,7 @@ Read in this order. The explorer link is the deployed testnet contract. The file
 
 ## How to verify the flywheel onchain
 
-Fair 0 left one shot and no keeper buy. The booking is still in the ledgers. A log search on 31 Oct 2026 UTC, from deploy block 145373467, found one `Shot` and no `Burned`, `BoughtForVault`, `Received`, `Bought` or `Forwarded` events.
+Chapter 0 left one shot and no keeper buy. The booking is still in the ledgers. A log search on 31 Oct 2026 UTC, from deploy block 145373467, found one `Shot` and no `Burned`, `BoughtForVault`, `Received`, `Bought` or `Forwarded` events.
 
 ### The shot
 
@@ -55,7 +55,7 @@ That is the 60 / 40 split. The same transaction emits `Seeded` with amount 0, be
 
 [Award transaction](https://explorer.testnet.chain.robinhood.com/tx/0x0f7bc3a68f2e18345034bcd4ec55a973beb63545d592041c9e8a98771b4b1025). `Awarded` pays 450,000 and `RolledOver` books 150,000. 450,000 + 150,000 = 600,000, the whole purse. No `Claimed` log had followed it at the time of the search, and `accounted()` was still the full shot, so that purse had not left FairCore. The 150,000 is `rollover` for the Sheriff's Seat.
 
-[Alms carry](https://explorer.testnet.chain.robinhood.com/tx/0xbc9e11b81757aecfca1ee79c694aa94a3f6d9a899886f0ee8916ec78da14cb00). `AlmsCarried` moves 80,000, which is 8% of the shot. There was no `AlmsReleased` log. A Fair with no votes carries the Alms forward instead of paying the Safe.
+[Alms carry](https://explorer.testnet.chain.robinhood.com/tx/0xbc9e11b81757aecfca1ee79c694aa94a3f6d9a899886f0ee8916ec78da14cb00). `AlmsCarried` moves 80,000, which is 8% of the shot. There was no `AlmsReleased` log. A chapter with no votes carries the Alms forward instead of paying the Safe.
 
 ### Ledgers still waiting on the keeper
 
@@ -88,10 +88,10 @@ The dead address is `0x000000000000000000000000000000000000dEaD`. Its tWIF balan
 | --- | --- |
 | `contracts/test/unit` | FairCore, FairPass, both booths, GameConfig, RakeBuyer, Robin Among Thieves, FeeSplitter, deploy checks |
 | `contracts/test/invariant/Invariants.t.sol` | USDG solvency (`invariant_I1_solventAndAccountedExact`), empty booths, the arrow clock, seat seconds, pass balance, claims and unlocks during a pause |
-| `contracts/test/invariant/ConfigInvariants.t.sol` | Split caps, token updates only through the timelock, no update during a Fair, anchor reset bounds |
+| `contracts/test/invariant/ConfigInvariants.t.sol` | Split caps, token updates only through the timelock, no update during a chapter, anchor reset bounds |
 | `contracts/test/invariant/RatInvariants.t.sol` | USDG conservation, licence locks, the contract never owning an ERC-8004 identity |
 | `contracts/test/audit` | Regression tests for the internal and external reviews. See [AUDIT.md](AUDIT.md) |
 | `contracts/test/fork` | Read-only checks against the live Robinhood RPC |
-| `contracts/test/sim/Fair0Sim.fork.t.sol` | Fair 0 money simulation. Skipped unless the prepared node is running |
+| `contracts/test/sim/Fair0Sim.fork.t.sol` | Chapter 0 money simulation. Skipped unless the prepared node is running |
 
 Run notes and the 31 Oct 2026 UTC counts are in the README. Fuzz runs and invariant depth are set in `contracts/foundry.toml`.

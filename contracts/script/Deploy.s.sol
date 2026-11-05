@@ -164,7 +164,7 @@ abstract contract DeployBase is L2Head, SafeCheck, LaunchSplit {
 
     /// AlmsVote's minimum notice and minimum suggest/vote window. Mainnet (4663) is always 24h each: the env is ignored
     /// there and the AlmsVote constructor refuses anything shorter. Testnet reads ALMS_MIN_NOTICE / ALMS_MIN_WINDOW
-    /// (seconds, default 24h) so a whole Fair can be rehearsed in hours.
+    /// (seconds, default 24h) so a whole chapter can be rehearsed in hours.
     function _almsMinimums() internal view returns (uint64 notice, uint64 window) {
         if (block.chainid == 4663) return (24 hours, 24 hours);
         uint256 n = vm.envOr("ALMS_MIN_NOTICE", uint256(24 hours));
@@ -463,10 +463,10 @@ abstract contract TestnetBase is DeployBase {
 ///   cast wallet import gos-testnet --interactive
 ///   forge script script/Deploy.s.sol:DeployTestnet --rpc-url robinhood_testnet --broadcast \
 ///     --account gos-testnet --sender <that address>
-/// Env (optional): SEAT_DAY_SECONDS (default 86400; e.g. 600 for a compressed Fair), FAIR_START, FAIR_END,
+/// Env (optional): SEAT_DAY_SECONDS (default 86400; e.g. 600 for a compressed chapter), FAIR_START, FAIR_END,
 ///                 TESTNET_OWNER (the pinned testnet Safe; ownership is handed to it in the same broadcast).
 ///   For the Safe rehearsal (mirror the mainnet flow): TESTNET_OWNER = the testnet Safe (also the Alms Safe), SAFE_OWNERS
-///   (its 3 owners), plus KEEPER, TOLL_RECIPIENT, ALMS_SUGGEST/ALMS_VOTE/ALMS_END (Fair 0 windows; must pass the W1 rules) and
+///   (its 3 owners), plus KEEPER, TOLL_RECIPIENT, ALMS_SUGGEST/ALMS_VOTE/ALMS_END (Chapter 0 windows; must pass the W1 rules) and
 ///   ELIGIBLE_IDS. KEEPER and TOLL_RECIPIENT must not be the deployer: SafeAcceptVerify refuses a deployer who still holds
 ///   a role. Then run script/SafeAccept.s.sol:SafeAcceptVerify against testnet (nothing for the Safe to accept).
 contract DeployTestnet is TestnetBase {
@@ -511,13 +511,13 @@ contract DeployTestnet is TestnetBase {
 ///   TOLL_RECIPIENT, ANCHOR_SEED (the 30-min average from
 ///   `forge script script/Mainnet.s.sol:QuoteAnchor`; the script refuses a seed more than 20% from the live quote).
 /// Env (required): ELIGIBLE_IDS (comma-separated bytes32 donate.gg configIds, see contracts/eligible/fair0.json).
-///   Fair 0's suggestions open 2 Nov 12:00 UTC, so the allowlist is set in the deploy itself.
+///   Chapter 0's suggestions open 2 Nov 12:00 UTC, so the allowlist is set in the deploy itself.
 /// Deadline: setAlmsWindows needs 24h notice before suggestions open (2 Nov 12:00 UTC), so the script refuses to run
 ///   after 1 Nov 11:00 UTC (18:00 Bangkok), leaving an hour for the broadcast to land.
 /// After broadcast: run script/SafeAccept.s.sol:SafeAcceptVerify (read-only checks + log scan). There is no accept batch:
 ///   the Safe already owns everything. ANCHOR_SEED stands; a later re-seed is a queued, bounded Op.ResetRatchet (48h).
 contract DeployMainnet is DeployBase, MainnetAddrs {
-    // Fair 0, the Nottingham Fair (timeline A1, 30 Oct): 2 Nov 00:00 UTC -> 4 Nov 00:00 UTC, so the whole Fair
+    // Chapter 0, the Nottingham chapter (timeline A1, 30 Oct): 2 Nov 00:00 UTC -> 4 Nov 00:00 UTC, so the whole chapter
     // ends before round one of judging closes (4 Nov 17:30 UTC).
     uint64 constant FAIR0_START = 1793577600;
     uint64 constant FAIR0_END = 1793750400;
@@ -588,12 +588,12 @@ contract DeployMainnet is DeployBase, MainnetAddrs {
         require(o.core.vault() == address(o.vault), "vault wiring");
         require(o.core.anchorRate() == seed && o.core.ratchetFloorRate() != 0, "anchor seeded");
         (uint64 fs, uint64 fe) = o.core.fairs(0);
-        require(fs == FAIR0_START && fe == FAIR0_END && o.core.fairCount() == 1, "Fair 0");
+        require(fs == FAIR0_START && fe == FAIR0_END && o.core.fairCount() == 1, "Chapter 0");
         (uint64 ws, uint64 wv, uint64 we) = o.alms.windows(0);
         require(ws == ALMS0_SUGGEST && wv == ALMS0_VOTE && we == ALMS0_END, "Alms windows");
         require(o.alms.MIN_NOTICE() == 24 hours && o.alms.MIN_WINDOW() == 24 hours, "Alms minimums");
         require(o.seat.dayLength() == 1 days && o.seat.day0() % 1 days == 0, "UTC days");
-        require(o.seat.day0() <= FAIR0_START, "Seat days start by Fair 0");
+        require(o.seat.day0() <= FAIR0_START, "Seat days start by Chapter 0");
         require(BuyRouteV4(o.routeA).core() == address(o.core), "route A core");
         require(BuyRouteV3V4(payable(o.routeB)).core() == address(o.core), "route B core");
         require(address(BuyRouteV3V4(payable(o.routeB)).v3Pool()) == V3_POOL, "route B pool");

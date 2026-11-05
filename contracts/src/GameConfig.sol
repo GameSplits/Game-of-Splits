@@ -9,8 +9,8 @@ import {Tokens, Split, IFairCore} from "./interfaces/IFair.sol";
 /// @title GameConfig
 /// @notice Safe-owned config with a 7-day timelock: the play token, the pass amount, the buy token and the shot split.
 ///         Every update is queue -> wait `delay` -> execute, one pending update of each kind at a time, with events.
-///         Updates execute only while no Fair is running, and token updates increase `epoch`; FairCore's price
-///         anchor is tied to the epoch it was set in. Fair Passes keep the token and amount they were locked with, and
+///         Updates execute only while no chapter is running, and token updates increase `epoch`; FairCore's price
+///         anchor is tied to the epoch it was set in. Passes keep the token and amount they were locked with, and
 ///         nothing here can reach the Vault, the Purses or any USDG.
 contract GameConfig is SafeHandover {
     uint256 public constant BPS = 10_000;
@@ -118,7 +118,7 @@ contract GameConfig is SafeHandover {
         emit TokensCancelled();
     }
 
-    /// @notice After the delay, and only while no Fair is running.
+    /// @notice After the delay, and only while no chapter is running.
     function executeTokens() external onlyOwner {
         uint256 eta = tokensEta;
         if (eta == 0) revert NothingPending();
@@ -134,7 +134,7 @@ contract GameConfig is SafeHandover {
         emit TokensExecuted(e, t.playToken, t.passLock, t.buyToken);
     }
 
-    /// @notice Same pattern for the split, and it too executes only between Fairs, so a Fair's rules never change
+    /// @notice Same pattern for the split, and it too executes only between chapters, so a chapter's rules never change
     ///         while it runs. It applies to shots taken after it executes: each shot is split once, atomically, so no
     ///         money already in a ledger moves.
     function queueSplit(Split calldata s) external onlyOwner {
@@ -153,7 +153,7 @@ contract GameConfig is SafeHandover {
         emit SplitCancelled();
     }
 
-    /// @notice After the delay, and only while no Fair is running.
+    /// @notice After the delay, and only while no chapter is running.
     function executeSplit() external onlyOwner {
         uint256 eta = splitEta;
         if (eta == 0) revert NothingPending();

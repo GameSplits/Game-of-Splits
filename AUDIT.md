@@ -21,7 +21,7 @@ Fuzz and invariant settings are in `contracts/foundry.toml`.
 On 31 Oct 2026 UTC, Foundry 1.8.6 reported 631 passed, 0 failed and 1 skipped across the two commands in the README (599 plus 1 skip outside `test/fork`, and 32 passed inside `test/fork`). The non-fork run includes the fuzz tests and these invariant suites:
 
 - `contracts/test/invariant/Invariants.t.sol`. Solvency: the USDG balance of FairCore covers `accounted`, and `accounted` equals the sum of purses, rollovers, claims, Alms, toll, Bonfire and the vault ledgers. Booths hold no USDG. The arrow deadline stays within an hour of the last shot plus pause time. Seat seconds credited in a day do not exceed the day. A pause does not block claim or unlock. The pass contract holds exactly the locked $WIF.
-- `contracts/test/invariant/ConfigInvariants.t.sol`. The split stays inside the caps. Token and split updates execute only through the timelock and only while no Fair is active. A ratchet reset stays inside its bounds. The anchor epoch does not run ahead of GameConfig.
+- `contracts/test/invariant/ConfigInvariants.t.sol`. The split stays inside the caps. Token and split updates execute only through the timelock and only while no chapter is active. A ratchet reset stays inside its bounds. The anchor epoch does not run ahead of GameConfig.
 - `contracts/test/invariant/RatInvariants.t.sol`. Robin Among Thieves USDG equals free balances, reserved stakes, the Sharing Pot and pending rake. Licences match the locked play token. The contract does not own or get approved for an ERC-8004 identity.
 
 The skipped test is `contracts/test/sim/Fair0Sim.fork.t.sol`, which needs the prepared node from `contracts/script/e2e/fair0_sim.sh`.

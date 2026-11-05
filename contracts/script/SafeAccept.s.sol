@@ -245,7 +245,7 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         require(d.vault.launcher() == address(0) && d.vault.queuedLauncher() == address(0), "launcher queued");
         (uint64 fs, uint64 fe, uint64 ws, uint64 wv, uint64 we) = _expectedFair0();
         (uint64 s, uint64 e) = d.core.fairs(0);
-        require(s == fs && e == fe && d.core.fairCount() == 1, "Fair 0");
+        require(s == fs && e == fe && d.core.fairCount() == 1, "Chapter 0");
         (uint64 a, uint64 b, uint64 c) = d.alms.windows(0);
         require(a == ws && b == wv && c == we, "Alms windows");
         _checkRobin(d);

@@ -7,11 +7,11 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IFairCore, IFairPass} from "./interfaces/IFair.sol";
 
 /// @title AlmsVote
-/// @notice Each Fair's Alms (8% of every shot) goes to one charity the players choose. Fair Pass holders who held their
-///         pass before suggestions opened, and who played that Fair, suggest charities from the allowlist and vote:
-///         one wallet, one vote, for wallets that shot at least MIN_VOTE_SPEND in that Fair (A5-01). Most votes wins;
+/// @notice Each chapter's Alms (8% of every shot) goes to one charity the players choose. Pass holders who held their
+///         pass before suggestions opened, and who played that chapter, suggest charities from the allowlist and vote:
+///         one wallet, one vote, for wallets that shot at least MIN_VOTE_SPEND in that chapter (A5-01). Most votes wins;
 ///         a tie goes to the earliest suggestion. If nobody votes, nobody
-///         chooses for them: the Alms carry over to the next Fair and add to its vote, as many Fairs as it takes.
+///         chooses for them: the Alms carry over to the next chapter and add to its vote, as many chapters as it takes.
 ///         Release sends the USDG to the Alms Safe; the donation itself is made by hand on donate.gg and the receipt
 ///         is linked here. This contract never donates and holds no funds.
 contract AlmsVote is SafeHandover, ReentrancyGuard {
@@ -73,7 +73,7 @@ contract AlmsVote is SafeHandover, ReentrancyGuard {
 
     /// @notice Windows are announced at least MIN_NOTICE before suggestions open, and suggest and vote each stay open
     ///         at least MIN_WINDOW. Both are 24 hours on mainnet (4663), enforced here. Testnet may set them shorter
-    ///         so a whole Fair (suggest, vote, finalize, release) can be rehearsed in hours instead of days.
+    ///         so a whole chapter (suggest, vote, finalize, release) can be rehearsed in hours instead of days.
     uint64 public immutable MIN_NOTICE;
     uint64 public immutable MIN_WINDOW;
     uint64 public constant MAINNET_MIN = 24 hours;
@@ -92,9 +92,9 @@ contract AlmsVote is SafeHandover, ReentrancyGuard {
 
     uint64 public constant MAX_AFTER_FAIR = 14 days; // the vote ends within 14 days of the Fair ending
 
-    /// @notice Set a Fair's suggest and vote windows. Locked once suggestions open. Windows must be announced
+    /// @notice Set a chapter's suggest and vote windows. Locked once suggestions open. Windows must be announced
     ///         MIN_NOTICE ahead and each last at least MIN_WINDOW (a day each on mainnet), so the Safe can't run a
-    ///         vote only its own wallet can catch, and the vote must close within 14 days of the Fair's end, so it
+    ///         vote only its own wallet can catch, and the vote must close within 14 days of the chapter's end, so it
     ///         can't be postponed indefinitely.
     function setAlmsWindows(uint256 fairId, uint64 suggestStart, uint64 voteStart, uint64 voteEnd)
         external
@@ -114,7 +114,7 @@ contract AlmsVote is SafeHandover, ReentrancyGuard {
     }
 
     /// @notice Add donate.gg charities to the allowlist (from the committed eligible.json). A charity only counts for
-    ///         Fairs whose suggestions open after it was added, so the list can't change under a live vote.
+    ///         chapters whose suggestions open after it was added, so the list can't change under a live vote.
     function setEligible(bytes32[] calldata ids) external onlyOwner {
         for (uint256 i; i < ids.length; ++i) {
             if (ids[i] == bytes32(0)) revert ZeroId();
@@ -125,8 +125,8 @@ contract AlmsVote is SafeHandover, ReentrancyGuard {
         }
     }
 
-    /// @notice Clear a Fair's windows so the Fair can be rescheduled (e.g. the hackathon is extended). Only before the
-    ///         Fair starts, so before any suggestion or vote can exist. New windows must pass every rule again
+    /// @notice Clear a chapter's windows so the chapter can be rescheduled (e.g. the hackathon is extended). Only before the
+    ///         Chapter starts, so before any suggestion or vote can exist. New windows must pass every rule again
     ///         (MIN_NOTICE notice, MIN_WINDOW each, within 14 days of the end), so this gives nobody a new way to
     ///         steer the vote.
     function clearWindows(uint256 fairId) external onlyOwner {
@@ -138,7 +138,7 @@ contract AlmsVote is SafeHandover, ReentrancyGuard {
         emit WindowsCleared(fairId);
     }
 
-    /// @notice FairCore checks this so a Fair can't be moved out from under its vote windows.
+    /// @notice FairCore checks this so a chapter can't be moved out from under its vote windows.
     function windowsSet(uint256 fairId) external view returns (bool) {
         return windows[fairId].suggestStart != 0;
     }
@@ -157,8 +157,8 @@ contract AlmsVote is SafeHandover, ReentrancyGuard {
 
     // ================================================================== players
 
-    /// @notice A5-01 sybil damper (gameplay choice): to suggest or vote in a Fair a wallet must have put at least this
-    ///         much USDG into it, net: shots credited to it (whoever paid) minus what it has won from that Fair's
+    /// @notice A5-01 sybil damper (gameplay choice): to suggest or vote in a chapter a wallet must have put at least this
+    ///         much USDG into it, net: shots credited to it (whoever paid) minus what it has won from that chapter's
     ///         rounds (K16-D-A01, FairCore.netSpentIn). Winning a solo round back no longer counts, so 5 means 5. Checked
     ///         at the moment of each suggestion or vote; a round still open then is money genuinely at risk.
     uint256 public constant MIN_VOTE_SPEND = 5e6;
@@ -171,7 +171,7 @@ contract AlmsVote is SafeHandover, ReentrancyGuard {
         if (spent < MIN_VOTE_SPEND) revert BelowMinSpend(spent, MIN_VOTE_SPEND);
     }
 
-    /// @notice One suggestion per wallet per Fair, from the allowlist.
+    /// @notice One suggestion per wallet per Chapter, from the allowlist.
     function suggest(uint256 fairId, bytes32 id) external nonReentrant {
         if (id == bytes32(0)) revert ZeroId();
         Windows storage W = windows[fairId];
@@ -189,7 +189,7 @@ contract AlmsVote is SafeHandover, ReentrancyGuard {
         emit Suggested(fairId, id, msg.sender, order);
     }
 
-    /// @notice One vote per wallet per Fair. The leader is tracked as votes come in, so finalising needs no loop.
+    /// @notice One vote per wallet per Chapter. The leader is tracked as votes come in, so finalising needs no loop.
     function vote(uint256 fairId, bytes32 id) external nonReentrant {
         Windows storage W = windows[fairId];
         if (block.timestamp < W.voteStart || block.timestamp >= W.voteEnd) revert WrongWindow();
@@ -212,7 +212,7 @@ contract AlmsVote is SafeHandover, ReentrancyGuard {
     uint256 public constant NO_WINDOWS_GRACE = 7 days;
 
     /// @notice After the vote closes. Most votes wins. Zero votes (or no suggestions): no winner, the Alms carry over.
-    ///         If a Fair's windows were never set, anyone can finalize it 7 days after it ends, as a zero-vote Fair,
+    ///         If a chapter's windows were never set, anyone can finalize it 7 days after it ends, as a zero-vote Chapter,
     ///         so its Alms roll forward without anyone's say-so.
     function finalize(uint256 fairId) external nonReentrant {
         Windows storage W = windows[fairId];
@@ -229,8 +229,8 @@ contract AlmsVote is SafeHandover, ReentrancyGuard {
         emit Finalized(fairId, R.winner, R.leaderVotes, R.winner == bytes32(0));
     }
 
-    /// @notice Anyone, after finalize. With a winner: send this Fair's Alms to the Alms Safe for that charity. With no
-    ///         votes: carry them into the next Fair's Alms. Can be called again later for shots that came after
+    /// @notice Anyone, after finalize. With a winner: send this chapter's Alms to the Alms Safe for that charity. With no
+    ///         votes: carry them into the next chapter's Alms. Can be called again later for shots that came after
     ///         (tranches); every tranche follows the same outcome.
     function releaseAlms(uint256 fairId) external nonReentrant returns (uint256 amount) {
         Result storage R = results[fairId];

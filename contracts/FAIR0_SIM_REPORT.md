@@ -1,8 +1,8 @@
-# Fair 0 simulation report (v3.6.1, 25 Oct 2026)
+# Chapter 0 simulation report (v3.6.1, 25 Oct 2026)
 
-> **Superseded dates (30 Oct):** this report ran the old 2–7 Nov Fair. Fair 0 now runs 2–4 Nov (timeline A1) and `test/sim/Fair0Sim.fork.t.sol` is updated to match. Re-run `bash script/e2e/fair0_sim.sh` to regenerate the numbers below.
+> **Superseded dates (30 Oct):** this report ran the old 2–7 Nov Chapter. Chapter 0 now runs 2–4 Nov (timeline A1) and `test/sim/Fair0Sim.fork.t.sol` is updated to match. Re-run `bash script/e2e/fair0_sim.sh` to regenerate the numbers below.
 
-**Result: pass.** The whole of Fair 0 ran end to end on a copy of Robinhood Chain mainnet. Every USDG and $wif is accounted for to the last unit, and every rule refused what it should. Nothing touched the real chain and no keys were used.
+**Result: pass.** The whole of Chapter 0 ran end to end on a copy of Robinhood Chain mainnet. Every USDG and $wif is accounted for to the last unit, and every rule refused what it should. Nothing touched the real chain and no keys were used.
 
 Reproduce with `bash script/e2e/fair0_sim.sh` (forge 1.5.x; see "limits" for why not 1.8.x).
 
@@ -10,11 +10,11 @@ Reproduce with `bash script/e2e/fair0_sim.sh` (forge 1.5.x; see "limits" for why
 
 The setup was a local anvil fork of Robinhood Chain mainnet: real USDG (Paxos), real $wif, the real v4 PoolManager, the Pons and Fables hooks, and the v3 USDG/WETH pool.
 
-**Before the Fair, as real broadcasts** (the same commands mainnet will use):
-1. `QuoteAnchor` → `DeployMainnet --broadcast`, with the live seed, the three test charities and Fair 0's real dates.
+**Before the chapter, as real broadcasts** (the same commands mainnet will use):
+1. `QuoteAnchor` → `DeployMainnet --broadcast`, with the live seed, the three test charities and Chapter 0's real dates.
 2. `SafeAcceptBatch` → the Safe executes the 5-tx batch → `SafeAcceptVerify` passes: the Safe owns all four contracts and the anchor is re-seeded.
 
-**Then `test/sim/Fair0Sim.fork.t.sol`** played the Fair on that node.
+**Then `test/sim/Fair0Sim.fork.t.sol`** played the chapter on that node.
 - **Players:** 30.
 - **Timing:** 10-minute ticks from 2 Nov 00:00 to 7 Nov 00:00 UTC.
 - **Keeper:** an hourly model of the v2 keeper rules:
@@ -31,10 +31,10 @@ The setup was a local anvil fork of Robinhood Chain mainnet: real USDG (Paxos), 
 | Seat takes | 53 over 4 days, including a 6-take bidding war on 3 Nov |
 | Spent by players | 851 USDG (784 Last Arrow, 67 Seat) |
 | Paid to winners (claimed) | 511 USDG |
-| Alms to the Alms Safe (BLUE won the vote) | 68 USDG in 2 tranches: 53 at the vote, 15 after the Fair |
+| Alms to the Alms Safe (BLUE won the vote) | 68 USDG in 2 tranches: 53 at the vote, 15 after the chapter |
 | Toll to the Toll recipient | 59 USDG |
 | Keeper buybacks | 24 swaps, 131 USDG: 71,134 $wif burned at 0xdEaD and 27,765 $wif bought into the Vault |
-| Keeper skips below the floor | 0. The anchor stayed at 750–753 $wif per USDG all Fair |
+| Keeper skips below the floor | 0. The anchor stayed at 750–753 $wif per USDG all Chapter |
 | Left in FairCore | 81.59 USDG = 76.72 in the Vault ledgers (held for the $FAIRS launch) + 4.87 in buyback ledgers (each under the 5 USDG minimum) + 9 units of rollover dust |
 
 ## The money checks (all pass)
@@ -43,13 +43,13 @@ The setup was a local anvil fork of Robinhood Chain mainnet: real USDG (Paxos), 
 2. **USDG in = USDG out + held:** 851 spent = 511 claimed + 68 Alms + 59 Toll + 131 swapped + 81.59 held. These figures are rounded down to whole USDG; the test's check is exact to the unit.
 3. **Nothing owed outside the ledgers:** no unclaimed winnings, no open pots, every round and every Seat day settled.
 4. **Alms:** exactly 8% of every play, rounded per play as FairCore does. All of it reached the Alms Safe, for the charity the players voted for.
-5. **$wif:** the burned $wif all sits at 0xdEaD; the Vault holds exactly what it bought; both routes hold nothing; FairPass holds 0 after the unlocks; every player has exactly their Fair Pass back. The launch lock is 5,000 $wif (decided 29 Oct). The 25 Oct run that produced the USDG totals above locked 10,000 $wif and returned that amount.
+5. **$wif:** the burned $wif all sits at 0xdEaD; the Vault holds exactly what it bought; both routes hold nothing; FairPass holds 0 after the unlocks; every player has exactly their Pass back. The launch lock is 5,000 $wif (decided 29 Oct). The 25 Oct run that produced the USDG totals above locked 10,000 $wif and returned that amount.
 
 ## The edge cases it hit
 
 | Case | What happened |
 |---|---|
-| Before the Fair | A shot and a take on 1 Nov were refused (`NoActiveFair`). |
+| Before the chapter | A shot and a take on 1 Nov were refused (`NoActiveFair`). |
 | 24h hold | p5 locked 1 Nov 12:00. An unlock at 2 Nov 11:00 was refused (`HoldNotOver`); at 12:00 it worked. With no pass, p5's shot was refused (`NoPass`). p5 relocked. |
 | Round ends on its clock | Quiet stretches on 2 Nov and 4 Nov ended rounds after an hour, including a short 4-shot round whose unfilled late shares rolled into the next round. |
 | 24h hard end (removed since this run) | Non-stop shooting from 2 Nov 20:00 to 4 Nov 08:00 hit the old 24h wall. A round now has no hard end: it keeps going while shots come in and ends 1h after the last shot. |
@@ -59,8 +59,8 @@ The setup was a local anvil fork of Robinhood Chain mainnet: real USDG (Paxos), 
 | Finalize and tranches | 5 Nov 00:00: BLUE finalized, 53 USDG released. 7 Nov: the late tranche of 15 USDG went to the same winner. A receipt was posted. |
 | Quiet Seat day (v3.6 fix) | No takes on 4 Nov. The first take on 5 Nov settled 3 Nov, so the new "settle the last day with a take" path ran. |
 | Emergency pause | 5 Nov 10:00–12:00. The live Last Arrow round's deadline moved exactly 2h. The Seat credited exactly 22h for 5 Nov (24h minus the 2h pause). 6 plays were refused (`Paused`). |
-| End of the Fair | The last shot landed at 23:59:50 and won its round. A shot and a take at 00:00:05 were refused (`NoActiveFair`). |
-| After the Fair | The keeper sweep settled the last round, every winner claimed, the Safe withdrew the Toll, and everyone unlocked. |
+| End of the chapter | The last shot landed at 23:59:50 and won its round. A shot and a take at 00:00:05 were refused (`NoActiveFair`). |
+| After the chapter | The keeper sweep settled the last round, every winner claimed, the Safe withdrew the Toll, and everyone unlocked. |
 
 ## What this doesn't cover
 

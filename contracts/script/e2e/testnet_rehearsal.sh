@@ -20,7 +20,7 @@ DEP=${DEP:-0x00000000000000000000000000000000De946630}  # stand-in for the gos-t
 export TESTNET_OWNER=$SAFE OWNER_SAFE=$SAFE ALMS_SAFE=$SAFE TOLL_RECIPIENT=$SAFE
 export KEEPER=0xf79640C55805A3dc50F4d07AaA8Dfb52bbAa35E1 DEPLOYER=$DEP
 export SAFE_OWNERS=$("$F/cast" call $SAFE "getOwners()(address[])" --rpc-url $L | tr -d '[] ')
-# Verify re-derives Fair 0 from FAIR_START/FAIR_END, so set both explicitly (the deploy's defaults are clock-relative)
+# Verify re-derives Chapter 0 from FAIR_START/FAIR_END, so set both explicitly (the deploy's defaults are clock-relative)
 NOWTS=$("$F/cast" block latest -f timestamp --rpc-url $L)
 export ELIGIBLE_IDS=${ELIGIBLE_IDS:-$(cast keccak charity-a),$(cast keccak charity-b)}
 export FAIR_START=${FAIR_START:-$((NOWTS + 900))} FAIR_END=${FAIR_END:-$((NOWTS + 900 + 7 * 86400))}

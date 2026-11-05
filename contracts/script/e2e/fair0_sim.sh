@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fair 0 end-to-end simulation on a LOCAL anvil fork of Robinhood Chain mainnet (real USDG, $wif, pools, hooks).
+# Chapter 0 end-to-end simulation on a LOCAL anvil fork of Robinhood Chain mainnet (real USDG, $wif, pools, hooks).
 #   1. the real mainnet deploy: forge script DeployMainnet --broadcast (seed from QuoteAnchor)
 #   2. the Safe's accept: SafeAcceptBatch -> the Safe executes the batch -> SafeAcceptVerify
 #   3. test/sim/Fair0Sim.fork.t.sol plays 2-4 Nov (timeline A1) on that node and checks every USDG and $wif
@@ -37,6 +37,6 @@ export ANCHOR_SEED_AT=$("$F/cast" block latest --rpc-url $L -f timestamp)
 python3 -c "import json;[print(t['to'],t['data']) for t in json.load(open('deployments/safe-accept-4663.json'))['transactions']]" \
   | while read to data; do "$F/cast" send $to $data --from $OWNER_SAFE --unlocked --rpc-url $L >/dev/null; done
 "$F/forge" script script/SafeAccept.s.sol:SafeAcceptVerify --rpc-url $L 2>&1 | grep -E "^  verified|UNEXPECTED|Error: script failed" | head -2
-echo "== 3. Fair 0"
+echo "== 3. Chapter 0"
 SIM_RPC=$L SIM_DEPLOYMENT=deployments/4663.json "$F/forge" test --match-path test/sim/Fair0Sim.fork.t.sol -vv 2>&1 \
   | grep -vE "^Warning|^ *\||^ *-->|^$|Compiling|Solc|Compiler run"

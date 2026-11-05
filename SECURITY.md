@@ -36,11 +36,11 @@ The testnet owner is the Safe [0xDF3d35A99af7A1A3fdE128b8FDFa0D60aE9A1F00](https
 
 The same Safe is `almsSafe()` and `tollRecipient()` on the deployed FairCore. The deployer `0x86544901BB78438E8dF580903AA91ea1c6A00378` is not an owner. Deploy used `handOver` so the deployer EOA lost ownership in the deploy broadcast. Later ownership moves use Ownable2Step: the new owner must accept. `renounceOwnership` reverts on these contracts.
 
-The Safe can pause sales, revoke the keeper immediately, and queue the changes in the table. It cannot, through an owner function, take a purse, a claimable balance, locked Fair Pass tokens, or an Alms balance that players have already been credited. Players can `claim` while sales are paused. A Fair Pass can `unlock` after its own 24 hours while sales are paused.
+The Safe can pause sales, revoke the keeper immediately, and queue the changes in the table. It cannot, through an owner function, take a purse, a claimable balance, locked Pass tokens, or an Alms balance that players have already been credited. Players can `claim` while sales are paused. A Pass can `unlock` after its own 24 hours while sales are paused.
 
 | Change | Mainnet wait | Testnet 46630, read 31 Oct 2026 UTC |
 | --- | --- | --- |
-| GameConfig tokens or split | 7 days, and only while no Fair is active | `delay()` is 0 |
+| GameConfig tokens or split | 7 days, and only while no chapter is active | `delay()` is 0 |
 | FairCore routes, keeper, booths, toll recipient, Alms Safe, ratchet reset | 48 hours | `timelockDelay()` is 0 |
 | Revoke the FairCore, RakeBuyer or Robin Among Thieves keeper | immediate | immediate |
 | RakeBuyer keeper, routes, ratchet, forward recipient | 48 hours | `timelockDelay()` is 0 |
@@ -48,7 +48,7 @@ The Safe can pause sales, revoke the keeper immediately, and queue the changes i
 | Robin Among Thieves bonds | 7 days, and bonds start disabled | `bondDelay()` is 0 and `bondsEnabled()` is false |
 | FeeSplitter recipients or split | 7 days | not deployed |
 | LocksleyVault launcher | 7 days, then one attach | `launcher()` is the zero address. The 7 day wait is a constant on every chain |
-| Fair Pass unlock | 24 hours after that wallet locked | same |
+| Pass unlock | 24 hours after that wallet locked | same |
 | Outlaw licence return | 24 hours after the licence | same |
 
 On testnet the owner waits above are 0, except the vault launcher. A queued GameConfig update can be executed at once, and only while `activeFair()` is false. Mainnet constructors revert if FairCore, RakeBuyer or RobinAmongThieves are deployed with a timelock under 48 hours, or if GameConfig is deployed with a delay under 7 days, or if the bond delay is under 7 days.
@@ -69,7 +69,7 @@ A keeper key can still buy, inside the caps: 250 USDG per FairCore ledger per ca
 
 LocksleyVault cannot pay anyone until a launcher is attached. After that, only the launcher can pull. `vaultLiqUsdg` and `vaultFairsBurnUsdg` stay inside FairCore until that pull.
 
-A round that is still open when a Fair ends attributes the shot to the Fair that was active when the USDG was taken, and the winnings to the Fair of the round's first shot. Schedule the next Fair so no round is open across the boundary. The testnet runbook records this.
+A round that is still open when a chapter ends attributes the shot to the chapter that was active when the USDG was taken, and the winnings to the chapter of the round's first shot. Schedule the next chapter so no round is open across the boundary. The testnet runbook records this.
 
 Testnet routes mint tWIF or tTKB at a fixed rate. They are not a price check against a pool. Mainnet routes are the v3 and v4 contracts, and they are not what 46630 runs.
 
