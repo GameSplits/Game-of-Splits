@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Dry run of the TESTNET deploy + SafeAcceptVerify on a LOCAL anvil fork of Robinhood Chain testnet (46630).
+# Dry run of the TESTNET deploy + DeployFeeSplitter + SafeAcceptVerify on a LOCAL anvil fork of Robinhood Chain testnet (46630).
 # Uses the real pinned testnet Safe and its real owners (read from the fork), the real keeper address, and the
 # shipped Deploy.s.sol pin (no pin rewrite). anvil's --auto-impersonate stands in for the deployer keystore, so no
 # key is used and nothing is sent to the real chain. Runs in a temp copy so no deployments/46630.json is left behind.
@@ -8,7 +8,7 @@ set -euo pipefail
 BIN=${FOUNDRY_BIN:-$(dirname "$(command -v forge || echo /nonexistent/forge)")}
 [ -x "$BIN/forge" ] || { echo "forge not found: put Foundry on PATH or set FOUNDRY_BIN"; exit 1; }
 F=$BIN; PORT=${PORT:-8551}; L=http://127.0.0.1:$PORT
-SRC=$(cd "$(dirname "$0")/../.." && pwd)
+SRC=$(cd "$(dirname "$0")/../.." && pwd); E2E=$SRC/script/e2e
 WORK=$(mktemp -d); cp -r "$SRC" "$WORK/c"; cd "$WORK/c"; rm -rf broadcast deployments/*.json
 "$F/anvil" --fork-url https://rpc.testnet.chain.robinhood.com --auto-impersonate --port $PORT --silent & APID=$!
 trap 'kill $APID 2>/dev/null; rm -rf "$WORK"' EXIT
@@ -30,15 +30,21 @@ echo "safe owners: $SAFE_OWNERS   threshold: $("$F/cast" call $SAFE 'getThreshol
 "$F/cast" rpc anvil_setBalance $SAFE 0x2386F26FC10000 --rpc-url $L >/dev/null
 echo "== 1. deploy (DeployTestnet, ownership to the Safe in the same broadcast)"
 "$F/forge" script script/Deploy.s.sol:DeployTestnet --rpc-url $L --broadcast --unlocked --sender $DEP --slow 2>&1 \
-  | grep -E "ONCHAIN EXECUTION|wrote deployments|Error|revert" | head -4
+  | grep -E "ONCHAIN EXECUTION|wrote deployments|Error:|revert" | sed -n 1,4p
 [ -f deployments/46630.json ] || { echo "deploy failed"; exit 1; }
 J() { python3 -c "import json;print(json.load(open('deployments/46630.json'))['$1'])"; }
-verify() { "$F/forge" script script/SafeAccept.s.sol:SafeAcceptVerify --rpc-url $L 2>&1 | grep -E "^  verified|UNEXPECTED EVENT COUNT: |expected|Error: script failed|revert" | head -3 || true; }
+echo "== 1b. DeployFeeSplitter (testnet: every non-vault leg is the testnet Safe)"
+export PURSES=$SAFE REBATE=$SAFE BURN_BUYER=$SAFE OPS=$SAFE
+. "$E2E/fee_splitter.sh"
+deploy_fee_splitter $DEP
+echo "feeSplitter $(J feeSplitter) owner $("$F/cast" call $(J feeSplitter) 'owner()(address)' --rpc-url $L)"
+echo "deployer gas spent so far: $("$F/cast" from-wei $((0x2386F26FC10000 - $("$F/cast" balance $DEP --rpc-url $L)))) ETH (the real deployer must hold more)"
+verify() { "$F/forge" script script/SafeAccept.s.sol:SafeAcceptVerify --rpc-url $L 2>&1 | grep -E "^  verified|UNEXPECTED EVENT COUNT: |expected|Error: script failed|revert" | sed -n 1,3p || true; }
 SNAP=$("$F/cast" rpc evm_snapshot --rpc-url $L | tr -d '"')
 echo "startBlock in file: $(J startBlock)   L2 head: $("$F/cast" block-number --rpc-url $L)"
 echo "== 2. SafeAcceptVerify right after the deploy: must print verified"
 verify
-for a in $(J gameConfig) $(J fairCore) $(J fairPass) $(J almsVote) $(J locksleyVault) $(J robinAmongThieves) $(J rakeBuyer); do
+for a in $(J gameConfig) $(J fairCore) $(J fairPass) $(J almsVote) $(J locksleyVault) $(J robinAmongThieves) $(J rakeBuyer) $(J feeSplitter); do
   echo "owner $("$F/cast" call $a 'owner()(address)' --rpc-url $L)"; done
 echo "robin entriesPaused: $("$F/cast" call $(J robinAmongThieves) 'entriesPaused()(bool)' --rpc-url $L)   rakeBuyer forwardTo: $("$F/cast" call $(J rakeBuyer) 'forwardTo()(address)' --rpc-url $L)"
 echo "== 3. the Safe un-pauses Robin entries before Verify: must be refused"

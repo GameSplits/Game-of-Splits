@@ -55,6 +55,7 @@ const core = parseAbi([
   "function resetRatchet(uint256)",
   "function pauseSales(bool)",
   "function queue(uint8 op, uint256 key, address value) returns (bytes32)",
+  "function execute(uint8 op, uint256 key, address value)",
   "function cancel(bytes32)",
   "function opId(uint8 op, uint256 key, address value) view returns (bytes32)",
   "function revokeKeeper()",
@@ -102,9 +103,10 @@ async function routeARate(usdgIn) {
 // ------------------------------------------------------------------ keeper + watcher runners
 const baseEnv = {
   RPC_URL: RPC, CHAIN_ID: "4663", CORE: D.fairCore, ARROW: D.lastArrow, SEAT: D.sheriffsSeat, ALMS: D.almsVote,
-  PASS: D.fairPass, VAULT: D.locksleyVault, KEEPER: thief.account.address, START_BLOCK: String(D.startBlock),
+  PASS: D.fairPass, VAULT: D.locksleyVault, RAT: D.robinAmongThieves, RAKE_BUYER: D.rakeBuyer, KEEPER: thief.account.address, START_BLOCK: String(D.startBlock),
   SENDLOG_SECRET: SECRET, ALERT_FILE: ALERTS, STATE_FILE: STATE, PORT: String(PORT), CRON_SECRET: CRON,
   HEALTHCHECK_URL: `http://127.0.0.1:${PORT}/hc`, HC_FILE: HC, OIDC_REQUIRED: "0", CONFIRMATIONS: "0",
+  ...(D.feeSplitter ? { FEE_SPLITTER: D.feeSplitter } : {}), // BLK-5: live at launch, so the watcher watches it
 };
 const store = fileStore(STATE);
 const W = `http://127.0.0.1:${PORT}`;
@@ -224,11 +226,15 @@ try {
   await rpc("anvil_setStorageAt", [USDG, keccak256(`${pad(PAYER)}${pad(toHex(1)).slice(2)}`), pad(toHex(50_000_000n * 10n ** 6n))]);
   for (const a of [PAYER, D.lastArrow, D.fairCore, SAFE]) await rpc("anvil_setBalance", [a, toHex(10n ** 20n)]);
   await call(PAYER, USDG, erc20, "approve", [D.fairCore, 2n ** 255n]);
+  // A1-12: after setup the Safe re-seeds through queue(Op.ResetRatchet = 8), 48h on mainnet. Queue it now, so the
+  // delay runs out during the warp into Fair 0, then execute it there (the seed is 8 days old by then).
+  const reseed = await routeARate(10_000_000n);
+  await call(SAFE, D.fairCore, core, "queue", [8, reseed, "0x0000000000000000000000000000000000000000"]);
   await rpc("evm_mine", [toHex(FAIR0_START + 3600)]);
   for (let i = 0; i < 10; i++) await call(D.lastArrow, D.fairCore, core, "collect", [PAYER, PAYER, 1n, 2_000_000_000n]);
   const pend = await Promise.all(["bonfirePending", "vaultBurnPending", "vaultBuyPending"].map((f) => read(D.fairCore, core, f)));
   console.log(`ledgers: Bonfire ${Number(pend[0]) / 1e6}, Vault burn ${Number(pend[1]) / 1e6}, Vault buy ${Number(pend[2]) / 1e6} USDG; owner: multisig SafeL2 ${SAFE}`);
-  await call(SAFE, D.fairCore, core, "resetRatchet", [await routeARate(10_000_000n)]); // the seed is 8 days old by now
+  await call(SAFE, D.fairCore, core, "execute", [8, reseed, "0x0000000000000000000000000000000000000000"]); // the seed is 8 days old by now
 
   // 0. First watcher passes. Expected once: state + nonce baseline missing (fresh store), and the deploy, the accept
   //    batch and the re-seed as owner events, now one push per event type (M4). Five passes build the price history.
@@ -390,6 +396,19 @@ try {
   r = await watcher();
   check("8k its fills are verified by both checks", r.fills.length >= 1 && r.fills.every((f) => f.done && f.d2a === "ok" && f.d2b === "ok"), JSON.stringify(r.fills.map((f) => [f.d2a, f.d2b])));
   expect("8l no alerts after the re-seeded run", []);
+
+  // 8m (BLK-5). The Safe queues a FeeSplitter recipient change and cancels it: every signer is told.
+  if (D.feeSplitter) {
+    const fsAbi = parseAbi(["function queue(uint8 op, uint256 key, address value) returns (bytes32)", "function cancel(bytes32)", "function opId(uint8 op, uint256 key, address value) view returns (bytes32)"]);
+    await call(SAFE, D.feeSplitter, fsAbi, "queue", [4, 0n, ATTACKER]);
+    await advance(60);
+    await watcher();
+    expect("8m FeeSplitter change queued", ["watcher:emergency:feeSplitter.ChangeQueued"], { allow: ["watcher:high:keeper not buying"] });
+    await call(SAFE, D.feeSplitter, fsAbi, "cancel", [await read(D.feeSplitter, fsAbi, "opId", [4, 0n, ATTACKER])]);
+    await advance(60);
+    await watcher();
+    expect("8n FeeSplitter change cancelled", ["watcher:high:feeSplitter.ChangeCancelled"], { allow: ["watcher:high:keeper not buying"] });
+  } else check("8m FeeSplitter in the deployment file", false, "no feeSplitter: run DeployFeeSplitter");
 
   // 9. Revoke (Path A): the keeper stands down silently (the watcher reports the revoke); keeper checks go idle.
   await call(SAFE, D.fairCore, core, "revokeKeeper", []);

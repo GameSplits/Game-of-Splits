@@ -14,6 +14,8 @@ The setup was a local anvil fork of Robinhood Chain mainnet: real USDG (Paxos), 
 1. `QuoteAnchor` → `DeployMainnet --broadcast`, with the live seed, the three test charities and Chapter 0's real dates.
 2. `SafeAcceptBatch` → the Safe executes the 5-tx batch → `SafeAcceptVerify` passes: the Safe owns all four contracts and the anchor is re-seeded.
 
+> **Changed since (A1-14):** there is no accept batch any more. The deploy hands all seven contracts to the Safe in the same broadcast, and step 2 is now `SafeAcceptVerify` alone. `script/e2e/fair0_sim.sh` runs that flow against the real pinned Safe on the fork.
+
 **Then `test/sim/Fair0Sim.fork.t.sol`** played the chapter on that node.
 - **Players:** 30.
 - **Timing:** 10-minute ticks from 2 Nov 00:00 to 7 Nov 00:00 UTC.
