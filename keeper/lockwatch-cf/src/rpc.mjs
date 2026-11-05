@@ -99,3 +99,32 @@ export function decodeRounds(hex) {
 export function decodeUint(hex) {
   return BigInt(hex);
 }
+
+export async function ethGetTransactionCount(rpcUrl, address) {
+  const hex = await rpc(rpcUrl, "eth_getTransactionCount", [address, "pending"]);
+  return BigInt(hex);
+}
+
+export async function ethEstimateGas(rpcUrl, tx) {
+  const hex = await rpc(rpcUrl, "eth_estimateGas", [tx]);
+  return BigInt(hex);
+}
+
+export async function ethSendRawTransaction(rpcUrl, raw) {
+  return rpc(rpcUrl, "eth_sendRawTransaction", [raw]);
+}
+
+export async function ethGetTransactionReceipt(rpcUrl, hash) {
+  return rpc(rpcUrl, "eth_getTransactionReceipt", [hash]);
+}
+
+/** Poll until receipt or timeoutMs. */
+export async function waitReceipt(rpcUrl, hash, { timeoutMs = 60000, pollMs = 1500 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const rcpt = await ethGetTransactionReceipt(rpcUrl, hash);
+    if (rcpt) return rcpt;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  throw new Error(`receipt timeout for ${hash}`);
+}

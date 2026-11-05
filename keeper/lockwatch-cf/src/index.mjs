@@ -1,7 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
-import { planRound, loadLockwatchConfig, PAIR_STEPS } from "./logic.mjs";
-import { calldata, getBlock, ethCallOk, ethCall, decodeRounds, decodeUint } from "./rpc.mjs";
+import { planRound, loadLockwatchConfig, PAIR_STEPS, afterRevert } from "./logic.mjs";
+import {
+  calldata, getBlock, ethCallOk, ethCall, decodeRounds, decodeUint,
+  ethGetTransactionCount, ethEstimateGas, ethSendRawTransaction, waitReceipt,
+} from "./rpc.mjs";
 import { makeAlerter } from "./alerts.mjs";
+import { signEip1559Tx, accountAddress } from "./wallet.mjs";
 
 const LOG_CAP = 200;
 
@@ -137,7 +141,8 @@ export class LockwatchDO extends DurableObject {
       }
       const args = plan.action === "pair" ? [r, PAIR_STEPS] : [r];
       const data = calldata(plan.action, args);
-      const sim = await ethCallOk(cfg.rpcUrl, cfg.rat, data);
+      const fromSim = cfg.key ? accountAddress(cfg.key) : undefined;
+      const sim = await ethCallOk(cfg.rpcUrl, cfg.rat, data, fromSim);
       if (!sim.ok) {
         await log(`round ${r}: ${plan.action} would revert (${sim.error}), skipping`);
         continue;
@@ -146,7 +151,50 @@ export class LockwatchDO extends DurableObject {
         await log(`round ${r}: dry run, would call ${plan.action} (${plan.why})`);
         continue;
       }
-      await warn(r, "live send path not enabled in CF worker yet (stay on DRY_RUN)");
+      // Live send (DRY_RUN=0). Config loader already requires key + alert channel.
+      const from = accountAddress(cfg.key);
+      const nonce = await ethGetTransactionCount(cfg.rpcUrl, from);
+      let gasLimit;
+      try {
+        gasLimit = await ethEstimateGas(cfg.rpcUrl, { from, to: cfg.rat, data });
+        gasLimit = (gasLimit * 12n) / 10n; // +20% headroom
+      } catch (e) {
+        await log(`round ${r}: estimateGas failed (${e.message}), using 400000`);
+        gasLimit = 400000n;
+      }
+      const maxFee = cfg.maxFeeWei;
+      const maxPriority = maxFee < 100000000n ? maxFee : 100000000n; // <= 0.1 gwei tip, never above cap
+      const raw = signEip1559Tx(cfg.key, {
+        chainId: cfg.chainId,
+        nonce,
+        maxPriorityFeePerGas: maxPriority,
+        maxFeePerGas: maxFee,
+        gasLimit,
+        to: cfg.rat,
+        value: 0n,
+        data,
+      });
+      let hash;
+      try {
+        hash = await ethSendRawTransaction(cfg.rpcUrl, raw);
+      } catch (e) {
+        await warn(r, `${plan.action} send failed (${e.message})`);
+        continue;
+      }
+      await log(`round ${r}: sent ${plan.action} ${hash}`);
+      let rcpt;
+      try {
+        rcpt = await waitReceipt(cfg.rpcUrl, hash);
+      } catch (e) {
+        await warn(r, `${plan.action} no receipt (${e.message})`);
+        continue;
+      }
+      if (rcpt.status === "0x1") continue;
+      const againHex = await ethCall(cfg.rpcUrl, cfg.rat, calldata("rounds", [r]));
+      const again = decodeRounds(againHex);
+      const how = afterRevert(plan.action, again);
+      if (how === "raced") await log(`round ${r}: ${plan.action} reverted, another caller already did it`);
+      else await warn(r, `${plan.action} reverted and the round is still not done`);
     }
 
     seenArr = [...seen];

@@ -8,5 +8,9 @@
   },
   "devDependencies": {
     "wrangler": "4.158.0"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.8.1",
+    "@noble/hashes": "^1.7.1"
   }
 }

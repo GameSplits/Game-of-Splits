@@ -6,7 +6,7 @@ Port of `keeper/src/lockwatch.mjs` to a Worker + Durable Object whose alarm poll
 
 - Same `planRound` timing windows, simulate-first skips, `MAX_FEE_GWEI`, `DRY_RUN` default.
 - Live mode (`DRY_RUN=0`) refuses to start without Pushover (or `NO_ALERTS=1`).
-- Live broadcast of txs is not wired yet in this Worker; keep `DRY_RUN=1` until a secure key path is added.
+- Live broadcast is wired (EIP-1559 via `LOCKWATCH_KEY` secret). Keep `DRY_RUN=1` unless the owner approves for a live test. Live mode also needs Pushover (or `NO_ALERTS=1`) and gas on the lockwatch wallet.
 - Endpoints on the Worker: `POST /start`, `POST /stop`, `POST /tick`, `GET /status`, `GET /logs`.
 
 ## Plan and cost
