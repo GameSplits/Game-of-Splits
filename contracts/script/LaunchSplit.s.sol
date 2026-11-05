@@ -20,16 +20,23 @@ abstract contract LaunchSplit {
         require(play == wif && buy == wif && lockAmt == PASS_LOCK, "config tokens");
     }
 
-    /// FeeSplitter launch split (the owner, 27 Oct 2026, confirmed for launch 5 Nov 2026): 40% purses, 25% Locksley Vault,
-    /// 15% weekly swapper rebate, 10% buy and burn ($wif to 0x...dEaD), 10% toll and ops. DeployFeeSplitter sets it
-    /// and SafeAcceptVerify checks it. FEE_SPLIT_BPS="purses,vault,rebate,burn,ops" overrides both the same way.
+    /// FeeSplitter launch split, option b (the owner, 4 Nov 2026), in leg order purses, vault, rebate, burn, ops:
+    /// 0% purses, 50% Locksley Vault, 0% weekly swapper rebate, 40% buy and burn ($wif to 0x...dEaD, any other token
+    /// to `burnBuyer`), 10% toll and ops. On mainnet (4663) DeployFeeSplitter writes exactly this and SafeAcceptVerify
+    /// checks exactly this, and FEE_SPLIT_BPS is refused (DS-1), so the deploy shell can't change what Verify accepts.
     function _launchFeeSplit() internal pure returns (FeeSplitter.FeeSplit memory) {
-        return FeeSplitter.FeeSplit({pursesBps: 4000, vaultBps: 2500, rebateBps: 1500, burnBps: 1000, opsBps: 1000});
+        return FeeSplitter.FeeSplit({pursesBps: 0, vaultBps: 5000, rebateBps: 0, burnBps: 4000, opsBps: 1000});
     }
 
+    /// The split DeployFeeSplitter sets and Verify expects. Mainnet is always `_launchFeeSplit`. Off mainnet (the 46630
+    /// rehearsal) FEE_SPLIT_BPS="purses,vault,rebate,burn,ops" may override it, the same value for both scripts.
     function _feeSplitFromEnv() internal view returns (FeeSplitter.FeeSplit memory s) {
-        uint256[] memory none = new uint256[](0);
-        uint256[] memory b = Vm(address(uint160(uint256(keccak256("hevm cheat code"))))).envOr("FEE_SPLIT_BPS", ",", none);
+        string memory raw = _vm().envOr("FEE_SPLIT_BPS", string(""));
+        uint256[] memory b = bytes(raw).length == 0 ? new uint256[](0) : _vm().envUint("FEE_SPLIT_BPS", ",");
+        if (block.chainid == 4663) {
+            require(b.length == 0, "FEE_SPLIT_BPS is refused on mainnet, the launch split is fixed in LaunchSplit");
+            return _launchFeeSplit();
+        }
         if (b.length == 0) return _launchFeeSplit();
         require(b.length == 5, "FEE_SPLIT_BPS needs 5 values");
         for (uint256 i; i < 5; ++i) {
@@ -37,5 +44,59 @@ abstract contract LaunchSplit {
         }
         require(b[0] + b[1] + b[2] + b[3] + b[4] == 10_000, "FEE_SPLIT_BPS must sum to 10000");
         s = FeeSplitter.FeeSplit(uint16(b[0]), uint16(b[1]), uint16(b[2]), uint16(b[3]), uint16(b[4]));
+    }
+
+    /// The five FeeSplitter legs DeployFeeSplitter sets and Verify pins (DS-3). The vault leg is always this deploy's
+    /// Locksley Vault. On mainnet the other four are the pinned Safe (the owner, 5 Nov 2026). Purses and rebate are 0 bps
+    /// but the contract needs a nonzero leg, ops is the Safe (confirmed 23:08 Bangkok), and burn is the Safe because
+    /// $wif burns go straight to 0x...dEaD and no separate buy and burn contract is deployed, so only non $wif fees
+    /// (ETH, USDG) reach that leg and the Safe buys and burns them by hand. If PURSES, REBATE, BURN_BUYER or OPS is set
+    /// on mainnet it must equal the Safe. Off mainnet all four come from env with no defaults. None may be `deployer`.
+    function _feeLegs(address safe, address vault, address deployer)
+        internal
+        view
+        returns (FeeSplitter.Recipients memory r)
+    {
+        if (block.chainid == 4663) {
+            r = FeeSplitter.Recipients({purses: safe, vault: vault, rebate: safe, burnBuyer: safe, ops: safe});
+            _envMatches("PURSES", safe);
+            _envMatches("REBATE", safe);
+            _envMatches("BURN_BUYER", safe);
+            _envMatches("OPS", safe);
+        } else {
+            r = FeeSplitter.Recipients({
+                purses: _vm().envAddress("PURSES"),
+                vault: vault,
+                rebate: _vm().envAddress("REBATE"),
+                burnBuyer: _vm().envAddress("BURN_BUYER"),
+                ops: _vm().envAddress("OPS")
+            });
+        }
+        require(
+            r.purses != deployer && r.vault != deployer && r.rebate != deployer && r.burnBuyer != deployer
+                && r.ops != deployer,
+            "a FeeSplitter leg is the deployer"
+        );
+    }
+
+    function _envMatches(string memory name, address want) private view {
+        string memory v = _vm().envOr(name, string(""));
+        if (bytes(v).length == 0) return; // unset, or empty as in .env.example
+        require(_vm().parseAddress(v) == want, string.concat(name, " must be the Safe on mainnet"));
+    }
+
+    /// True when `fs` has exactly this split and these legs.
+    function _feeSplitterMatches(FeeSplitter fs, FeeSplitter.FeeSplit memory w, FeeSplitter.Recipients memory r)
+        internal
+        view
+        returns (bool)
+    {
+        return fs.pursesBps() == w.pursesBps && fs.vaultBps() == w.vaultBps && fs.rebateBps() == w.rebateBps
+            && fs.burnBps() == w.burnBps && fs.opsBps() == w.opsBps && fs.purses() == r.purses && fs.vault() == r.vault
+            && fs.rebate() == r.rebate && fs.burnBuyer() == r.burnBuyer && fs.ops() == r.ops;
+    }
+
+    function _vm() private pure returns (Vm) {
+        return Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
     }
 }

@@ -56,8 +56,8 @@ The password is typed at the prompt only, never written to a file or the shell h
 single-use EOA that holds only gas ETH. It is never a Safe signer and it never holds USDG or $wif. On testnet, signer 1
 (`0xb44F…50bA`) stays a Safe owner and is not the deployer. After the Safe accepts, `SafeAcceptVerify` checks the
 deployer has no power left, that `OWNER_SAFE` is the Safe pinned in the deploy script, and that FairCore logged
-exactly two booths and the deployed routes (mainnet and testnet, the same checks; mainnet refuses while its pin is
-still zero). Then sweep leftover gas to the Safe and delete the keystore. See `contracts/RUNBOOK_KEEPER.md`. Every testnet live run, mainnet deploy or real transaction needs the owner's explicit approval.
+exactly two booths and the deployed routes (mainnet and testnet, the same checks, each pinned to its Safe so any other
+Safe is refused). Then sweep leftover gas to the Safe and delete the keystore. See `contracts/RUNBOOK_KEEPER.md`. Every testnet live run, mainnet deploy or real transaction needs the owner's explicit approval.
 
 ## Testnet deployment
 

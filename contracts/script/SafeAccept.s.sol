@@ -33,8 +33,8 @@ import {SafeCheck} from "./Deploy.s.sol";
 ///      DEPLOYMENT_FILE (default deployments/<chainId>.json).
 ///      SafeAcceptVerify also needs DEPLOYER (the deploy EOA; must match `deployer` in the deployment file).
 ///      SafeAcceptBatch and SafeAcceptVerify both require OWNER_SAFE to equal the Safe pinned in script/Deploy.s.sol.
-///      The mainnet pin is still zero, so a mainnet batch or verify fails closed until that address is written in a
-///      reviewed commit.
+///      Mainnet is pinned to 0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a (Deploy.s.sol, confirmed 4 Nov 2026), so any
+///      other Safe fails closed.
 ///      Testnet only: FAIR_START, FAIR_END, and ALMS_SUGGEST/ALMS_VOTE/ALMS_END if windows were set at deploy.
 /// The parts of a Safe this script reads. Owners are checked so the deployer is not a signer.
 interface ISafeOwners {
@@ -201,8 +201,8 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         return block.chainid == 4663;
     }
 
-    /// Batch and Verify refuse any owner Safe other than the one pinned in script/Deploy.s.sol. Mainnet's pin is still
-    /// zero, so a mainnet batch or verify fails closed until that address is written in a reviewed commit.
+    /// Batch and Verify refuse any owner Safe other than the one pinned in script/Deploy.s.sol (PINNED_MAINNET_SAFE on
+    /// 4663, PINNED_TESTNET_SAFE on 46630). Changing a pin needs a reviewed commit.
     function _requirePinnedOwner(address safe) internal view {
         require(block.chainid == 4663 || block.chainid == 46630, "Robinhood Chain only");
         _requirePinned(safe, _mainnet() ? PINNED_MAINNET_SAFE : PINNED_TESTNET_SAFE, "OWNER_SAFE");
@@ -546,8 +546,9 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
 
     /// BLK-5: FeeSplitter is live at mainnet launch (the owner, 5 Nov 2026). Mainnet Verify fails while the deployment file
     /// has no `feeSplitter`. When present (any chain): the Safe owns it from the constructor with no open offer, its
-    /// `wif` is this deploy's $wif, the vault leg is this deploy's Locksley Vault, and the split is the launch split
-    /// (`_launchFeeSplit`, or FEE_SPLIT_BPS). Recipients are checked by `_assertSplitterAndForward`, the code by
+    /// `wif` is this deploy's $wif (the real $wif on mainnet), the vault leg is this deploy's Locksley Vault, the
+    /// other four legs are `_feeLegs` (the Safe on mainnet, PURSES/REBATE/BURN_BUYER/OPS off it) and none is DEPLOYER,
+    /// and the split is `_launchFeeSplit` (fixed on mainnet, FEE_SPLIT_BPS may override it off mainnet). Recipients are checked by `_assertSplitterAndForward`, the code by
     /// `_assertFeeSplitterCode`, and every queue or rescue by the scan.
     function _checkFeeSplitter(D memory d, address safe) internal view {
         FeeSplitter fs = d.feeSplitter;
@@ -557,12 +558,17 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         }
         require(fs.owner() == safe && fs.pendingOwner() == address(0), "Safe doesn't own FeeSplitter");
         require(fs.wif() == d.wif && fs.vault() == address(d.vault), "feeSplitter wif or vault");
+        if (_mainnet()) require(fs.wif() == WIF, "feeSplitter wif isn't the mainnet $wif");
         FeeSplitter.FeeSplit memory w = _feeSplitFromEnv();
         require(
             fs.pursesBps() == w.pursesBps && fs.vaultBps() == w.vaultBps && fs.rebateBps() == w.rebateBps
                 && fs.burnBps() == w.burnBps && fs.opsBps() == w.opsBps,
             "feeSplitter split isn't the launch split"
         );
+        // DS-3: every leg is pinned to its expected address (mainnet, the Safe and the vault), none is the deployer
+        FeeSplitter.Recipients memory r = _feeLegs(safe, address(d.vault), vm.envAddress("DEPLOYER"));
+        require(fs.purses() == r.purses && fs.rebate() == r.rebate, "feeSplitter purses or rebate leg");
+        require(fs.burnBuyer() == r.burnBuyer && fs.ops() == r.ops, "feeSplitter burn or ops leg");
     }
 
     /// FeeSplitter's immutables must be this deploy's FairCore and RakeBuyer. A leg, RakeBuyer's vault, or
@@ -1044,7 +1050,7 @@ contract SafeAcceptBatch is AcceptBase {
 }
 
 /// READ-ONLY. Run right after the deploy, before the Safe does anything else. Confirms `GOS_SAFE` (or its alias
-/// `OWNER_SAFE`) is the Safe pinned in script/Deploy.s.sol (mainnet refuses while that pin is zero), the Safe owns all
+/// `OWNER_SAFE`) is the Safe pinned in script/Deploy.s.sol (any other Safe is refused), the Safe owns all
 /// seven contracts with nothing pending, the anchor is the deploy's seed, the wiring is unchanged, the deployer EOA
 /// (`DEPLOYER`, matching the deployment file) has no owner, pending owner or other role left (USDG or $wif dust on it
 /// only prints a WARNING, L-5), and that no owner action happened besides the deploy (scanned from the deploy to the

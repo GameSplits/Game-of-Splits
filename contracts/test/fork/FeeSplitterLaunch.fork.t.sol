@@ -56,10 +56,11 @@ contract FeeSplitterLaunchForkTest is Test, LaunchSplit {
         assertEq(fs.owner(), safe);
         assertEq(fs.pendingOwner(), address(0));
         assertEq(fs.TIMELOCK(), 7 days);
-        assertEq(fs.pursesBps(), 4000);
-        assertEq(fs.vaultBps(), 2500);
-        assertEq(fs.rebateBps(), 1500);
-        assertEq(fs.burnBps(), 1000);
+        // option b (the owner, 4 Nov): 0 purses, 50% vault, 0 rebate, 40% buy and burn, 10% ops
+        assertEq(fs.pursesBps(), 0);
+        assertEq(fs.vaultBps(), 5000);
+        assertEq(fs.rebateBps(), 0);
+        assertEq(fs.burnBps(), 4000);
         assertEq(fs.opsBps(), 1000);
         vm.prank(safe);
         vm.expectRevert(FeeSplitter.RenounceDisabled.selector);
@@ -75,10 +76,12 @@ contract FeeSplitterLaunchForkTest is Test, LaunchSplit {
         }
         uint256 dead0 = IERC20(WIF).balanceOf(fs.DEAD());
         fs.distribute(WIF);
-        assertEq(IERC20(WIF).balanceOf(fs.DEAD()) - dead0, amt / 10, "$wif burn share to dead");
+        assertEq(IERC20(WIF).balanceOf(fs.DEAD()) - dead0, amt * 4 / 10, "$wif burn share to dead");
         assertEq(IERC20(WIF).balanceOf(burnBuyer), 0);
-        assertEq(IERC20(WIF).balanceOf(purses), amt * 4 / 10);
-        assertEq(IERC20(WIF).balanceOf(vault), amt / 4);
+        assertEq(IERC20(WIF).balanceOf(purses), 0);
+        assertEq(IERC20(WIF).balanceOf(rebate), 0);
+        assertEq(IERC20(WIF).balanceOf(vault), amt / 2);
+        assertEq(IERC20(WIF).balanceOf(ops), amt / 10);
 
         uint256 u = 1_000e6;
         deal(USDG, address(fs), u);
@@ -87,8 +90,9 @@ contract FeeSplitterLaunchForkTest is Test, LaunchSplit {
             return;
         }
         fs.distribute(USDG);
-        assertEq(IERC20(USDG).balanceOf(burnBuyer), u / 10, "other tokens: burn leg to the burn buyer");
-        assertEq(IERC20(USDG).balanceOf(rebate), u * 15 / 100);
+        assertEq(IERC20(USDG).balanceOf(burnBuyer), u * 4 / 10, "other tokens: burn leg to the burn buyer");
+        assertEq(IERC20(USDG).balanceOf(rebate), 0);
+        assertEq(IERC20(USDG).balanceOf(vault), u / 2);
         assertEq(IERC20(USDG).balanceOf(ops), u / 10);
         assertEq(IERC20(USDG).balanceOf(address(fs)), 0);
     }
