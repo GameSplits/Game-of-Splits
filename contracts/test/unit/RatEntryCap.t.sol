@@ -20,17 +20,17 @@ contract RatEntryCapTest is RatBase {
         }
         for (uint256 i; i < 3; ++i) {
             enterAs(ana, ids[i], FIRST);
-            assertEq(rat.entriesByController(FIRST, ana), i + 1);
+            assertEq(rat.entriesByControllerOf(FIRST, ana), i + 1);
         }
         vm.prank(ana);
         vm.expectRevert(RobinAmongThieves.TooManyEntries.selector);
         rat.enter(ids[3], FIRST, keccak256(abi.encode(ids[3], FIRST)));
-        assertEq(rat.entriesByController(FIRST, ana), 3);
+        assertEq(rat.entriesByControllerOf(FIRST, ana), 3);
 
         // A different controller can still enter.
         uint256 bobId = regFunded(bob, 5e6);
         enterAs(bob, bobId, FIRST);
-        assertEq(rat.entriesByController(FIRST, bob), 1);
+        assertEq(rat.entriesByControllerOf(FIRST, bob), 1);
 
         // Round is not full: 4 seats used of 256.
         (,, uint32 entrants,,,,,,,,,,,,,,,) = rat.rounds(FIRST);
@@ -67,7 +67,7 @@ contract RatEntryCapTest is RatBase {
             vm.prank(opr);
             rat.enter(ids[i], FIRST, keccak256(abi.encode(ids[i], FIRST)));
         }
-        assertEq(rat.entriesByController(FIRST, ana), 3);
+        assertEq(rat.entriesByControllerOf(FIRST, ana), 3);
         vm.prank(opr);
         vm.expectRevert(RobinAmongThieves.TooManyEntries.selector);
         rat.enter(ids[3], FIRST, keccak256(abi.encode(ids[3], FIRST)));
@@ -77,8 +77,9 @@ contract RatEntryCapTest is RatBase {
         rat.enter(ids[3], FIRST, keccak256(abi.encode(ids[3], FIRST)));
     }
 
-    /// Sit-out (conflict) frees a slot so the controller can enter again in a later round, and count drops.
-    function test_sitOutDecrementsCount() public {
+    /// Sit-out (conflict) refunds and frees the outlaw for a later round. The cap is per round, so the count for
+    /// the finished round simply stays (nothing reads it again).
+    function test_sitOut_countStaysPerRound() public {
         toEntries(FIRST);
         wif.mint(ana, 3 * LIC);
         uint256 a1 = regFunded(ana, 5e6);
@@ -87,10 +88,10 @@ contract RatEntryCapTest is RatBase {
         enterAs(ana, a1, FIRST);
         enterAs(ana, a2, FIRST);
         enterAs(ana, a3, FIRST);
-        assertEq(rat.entriesByController(FIRST, ana), 3);
+        assertEq(rat.entriesByControllerOf(FIRST, ana), 3);
         // Pairing will sit them all out (same controller conflict / odd).
         seedPair(FIRST);
-        assertEq(rat.entriesByController(FIRST, ana), 0, "sit-out clears the count");
+        assertEq(rat.entriesByControllerOf(FIRST, ana), 3, "count is per round, not decremented");
         assertEq(openRoundOf(a1), 0);
         assertEq(openRoundOf(a2), 0);
         assertEq(openRoundOf(a3), 0);
@@ -104,11 +105,11 @@ contract RatEntryCapTest is RatBase {
         enterAs(ana, a1, r);
         enterAs(ana, a2, r);
         enterAs(ana, a3, r);
-        assertEq(rat.entriesByController(r, ana), 3);
+        assertEq(rat.entriesByControllerOf(r, ana), 3);
     }
 
-    /// Cancel refunds also decrement the count.
-    function test_cancelDecrementsCount() public {
+    /// Cancel refunds every stake; the per-round count is left as is.
+    function test_cancel_countStaysPerRound() public {
         toEntries(FIRST);
         wif.mint(ana, 3 * LIC);
         uint256 a1 = regFunded(ana, 5e6);
@@ -117,30 +118,30 @@ contract RatEntryCapTest is RatBase {
         enterAs(ana, a1, FIRST);
         enterAs(ana, a2, FIRST);
         enterAs(ana, a3, FIRST);
-        assertEq(rat.entriesByController(FIRST, ana), 3);
+        assertEq(rat.entriesByControllerOf(FIRST, ana), 3);
         vm.warp(rat.closeTime(FIRST) + 8 minutes);
         rat.cancelRound(FIRST, 10);
-        assertEq(rat.entriesByController(FIRST, ana), 0);
+        assertEq(rat.entriesByControllerOf(FIRST, ana), 3);
         assertEq(bal(a1), 5e6);
         assertEq(bal(a2), 5e6);
         assertEq(bal(a3), 5e6);
     }
 
-    /// Settle (_credit) also decrements so the mapping stays accurate after a real match.
-    function test_settleDecrementsCount() public {
+    /// Settle pays out; the per-round count is left as is.
+    function test_settle_countStaysPerRound() public {
         toEntries(FIRST);
         uint256 a = regFunded(ana, 5e6);
         uint256 b = regFunded(bob, 5e6);
         enterAs(ana, a, FIRST);
         enterAs(bob, b, FIRST);
-        assertEq(rat.entriesByController(FIRST, ana), 1);
-        assertEq(rat.entriesByController(FIRST, bob), 1);
+        assertEq(rat.entriesByControllerOf(FIRST, ana), 1);
+        assertEq(rat.entriesByControllerOf(FIRST, bob), 1);
         seedPair(FIRST);
         // Still counted until settle (paired, openRound set).
-        assertEq(rat.entriesByController(FIRST, ana), 1);
+        assertEq(rat.entriesByControllerOf(FIRST, ana), 1);
         settleAll(FIRST);
-        assertEq(rat.entriesByController(FIRST, ana), 0);
-        assertEq(rat.entriesByController(FIRST, bob), 0);
+        assertEq(rat.entriesByControllerOf(FIRST, ana), 1);
+        assertEq(rat.entriesByControllerOf(FIRST, bob), 1);
     }
 
     /// Fuzz: across many controllers, never more than 3 entries each; USDG ledgers stay consistent.
@@ -168,7 +169,7 @@ contract RatEntryCapTest is RatBase {
                     totalEntered++;
                 }
             }
-            assertEq(rat.entriesByController(FIRST, who), ok);
+            assertEq(rat.entriesByControllerOf(FIRST, who), ok);
             assertLe(ok, 3);
         }
         (,, uint32 entrants,,,,,,,,,,,,,,,) = rat.rounds(FIRST);
@@ -202,7 +203,7 @@ contract RatEntryCapTest is RatBase {
         vm.warp(rat.closeTime(FIRST) + 8 minutes);
         rat.cancelRound(FIRST, 100);
         assertEq(rat.reservedStakes(), 0);
-        assertEq(rat.entriesByController(FIRST, ana), 0);
+        assertEq(rat.entriesByControllerOf(FIRST, ana), 3);
         assertEq(
             usdg.balanceOf(address(rat)),
             rat.freeBalances() + rat.reservedStakes() + rat.sharingPot() + rat.rakePending()

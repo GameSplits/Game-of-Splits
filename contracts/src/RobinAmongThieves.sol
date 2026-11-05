@@ -176,7 +176,7 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
     mapping(uint256 => mapping(uint256 => bool)) public met; // R4 distinct-opponent set
     mapping(uint256 => bool) public houseRequested; // the controller asked to be a house outlaw (setHouse needs it)
     /// @notice RAT-01: how many of a controller's outlaws are entered in a round (open seats only).
-    mapping(uint256 => mapping(address => uint8)) public entriesByController; // round => controller => count
+    mapping(uint256 => mapping(address => uint8)) internal entriesByController; // round => controller => count
 
     bytes32 public seedTip; // keeper hash chain head: the next reveal must hash to it
     bytes32 public nextSeedTip; // a new chain, active from nextSeedFrom
@@ -1057,8 +1057,6 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
     function _sitOut(uint256 roundId, uint256 agentId, SatOutReason why) internal {
         Outlaw storage o = outlaws[agentId];
         o.openRound = 0;
-        uint8 n = entriesByController[roundId][o.controller];
-        if (n > 0) entriesByController[roundId][o.controller] = n - 1;
         o.balance += uint128(STAKE);
         reservedStakes -= STAKE;
         freeBalances += STAKE;
@@ -1111,12 +1109,7 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
     /// @dev Pays one side, clears its entry and counts the opponent toward R4 (after eligibility was decided).
     function _credit(uint256 id, uint256 opp, uint256 pay) internal {
         Outlaw storage o = outlaws[id];
-        uint64 r = o.openRound;
         o.openRound = 0;
-        if (r != 0) {
-            uint8 n = entriesByController[r][o.controller];
-            if (n > 0) entriesByController[r][o.controller] = n - 1;
-        }
         if (pay != 0) {
             o.balance += uint128(pay);
             freeBalances += pay;
