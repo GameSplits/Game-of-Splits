@@ -33,6 +33,8 @@ export async function verifyGithubOidc(token, cfg, { getKeys = githubJwks, nowS 
   } catch {
     return { ok: false, reason: "malformed token" };
   }
+  const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  if (!isObj(header) || !isObj(claims)) return { ok: false, reason: "malformed token" };
   if (header.alg !== "RS256") return { ok: false, reason: `alg ${header.alg}` };
   const jwk = (await getKeys()).find((k) => k.kid === header.kid);
   if (!jwk) return { ok: false, reason: "unknown kid" };
