@@ -16,6 +16,10 @@ contract RatHarness is RobinAmongThieves {
         outlaws[id].distinctOpponents = n;
     }
 
+    function entriesByControllerOf(uint256 r, address c) external view returns (uint8) {
+        return entriesByController[r][c];
+    }
+
     function fundPot(uint256 amt) external {
         require(usdg.transferFrom(msg.sender, address(this), amt));
         sharingPot += amt;

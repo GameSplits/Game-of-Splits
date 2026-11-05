@@ -16,6 +16,8 @@ jobs:
         with: { version: stable }
       - run: forge build --sizes
         working-directory: contracts
+      - run: NO_BUILD=1 bash script/check_sizes.sh
+        working-directory: contracts
       - run: forge test -vv --no-match-path "test/fork/*"
         working-directory: contracts
   node:

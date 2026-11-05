@@ -51,6 +51,8 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
     uint256 internal constant BONUS_MIN_OPPONENTS = 5; // R4
     uint256 internal constant HOUSE_ENTRY_WINDOW = 5 minutes;
     uint256 internal constant MAX_ENTRANTS = 256;
+    /// @notice RAT-01: one controller may enter at most this many outlaws in one round.
+    uint256 public constant MAX_ENTRIES_PER_CONTROLLER = 3;
     uint256 internal constant MAX_DRAW_BPS = 2500; // R1
     uint256 internal constant BPS = 10_000;
     uint256 internal constant SLASH_BPS = 1000; // 10% of a bond, when bonds are enabled
@@ -173,6 +175,8 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
     mapping(bytes32 => uint64) public lastPairBonus; // pairKey => time a bonus was last paid (R3)
     mapping(uint256 => mapping(uint256 => bool)) public met; // R4 distinct-opponent set
     mapping(uint256 => bool) public houseRequested; // the controller asked to be a house outlaw (setHouse needs it)
+    /// @notice RAT-01: how many of a controller's outlaws are entered in a round (open seats only).
+    mapping(uint256 => mapping(address => uint8)) internal entriesByController; // round => controller => count
 
     bytes32 public seedTip; // keeper hash chain head: the next reveal must hash to it
     bytes32 public nextSeedTip; // a new chain, active from nextSeedFrom
@@ -278,6 +282,7 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
     error InsufficientBalance();
     error HouseWindowClosed();
     error RoundFull();
+    error TooManyEntries();
     error OpenRound();
     error LicenceHeld(uint256 until);
     error BondsDisabled();
@@ -552,7 +557,8 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
     // ================================================================== play
 
     /// @notice Enter the round taking entries now. Reserves STAKE from the outlaw's balance. The controller must
-    ///         hold a Pass now; the caller may be the controller or the operator.
+    ///         hold a Pass now; the caller may be the controller or the operator. A controller may enter at most
+    ///         `MAX_ENTRIES_PER_CONTROLLER` outlaws in the same round (RAT-01).
     ///         `entropy` must be the one-click nonce `keccak256(abi.encode(agentId, roundId))`. Those nonces
     ///         are XORed into the accumulator, so the accumulator itself does not depend on entry order.
     ///         The shuffle still walks the `entrants` array in entry order, so order can change who meets whom.
@@ -571,6 +577,8 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
         if (!fairPass.hasPass(o.controller)) revert NoPass();
         Round storage r = rounds[roundId];
         if (r.entrants >= MAX_ENTRANTS) revert RoundFull();
+        uint8 n = entriesByController[roundId][o.controller];
+        if (n >= MAX_ENTRIES_PER_CONTROLLER) revert TooManyEntries();
         if (o.house && block.timestamp >= closeTime(roundId) - ROUND_EVERY + HOUSE_ENTRY_WINDOW) {
             revert HouseWindowClosed();
         }
@@ -586,6 +594,7 @@ contract RobinAmongThieves is SafeHandover, ReentrancyGuard {
         r.entrants++;
         r.entrantsAcc ^= nonce;
         entrants[roundId].push(agentId);
+        entriesByController[roundId][o.controller] = n + 1;
         emit Entered(roundId, agentId, entropy);
     }
 

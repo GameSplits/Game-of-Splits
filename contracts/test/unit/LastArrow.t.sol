@@ -449,7 +449,8 @@ contract LastArrowTest is Base {
         uint256 fairEnd = T0 + 6 days;
         for (uint256 i; i < n; ++i) {
             uint256 step = bound(uint256(keccak256(abi.encode(gap, i))), 0, 3 hours);
-            if (vm.getBlockTimestamp() + step >= fairEnd) break;
+            // A-02: leave at least OPEN_TIME before chapter end so a new round can still open.
+            if (vm.getBlockTimestamp() + step + 1 hours >= fairEnd) break;
             vm.warp(vm.getBlockTimestamp() + step);
             fire(i % 2 == 0 ? ana : bob);
             uint256 lastShotTime = vm.getBlockTimestamp();
