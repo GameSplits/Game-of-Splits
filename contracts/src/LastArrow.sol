@@ -77,6 +77,8 @@ contract LastArrow is ReentrancyGuard {
     error AlreadySettled();
     error NoRound();
     error WrongRound(uint256 expected, uint256 actual);
+    /// @notice A-02: a new round needs a full OPEN_TIME window before the chapter ends.
+    error ChapterEndingSoon();
 
     constructor(IFairCore core_) {
         core = core_;
@@ -154,6 +156,8 @@ contract LastArrow is ReentrancyGuard {
     ///         Rules against bots: no two shots in a row by the same player, at most one shot per L2 block.
     ///         K16-D-A02: `expectedRound` is the round you mean to shoot in (`nextShotRound()` when you sign). If the
     ///         round you saw ended before the tx lands, the shot would open a new round instead, so it reverts.
+    ///         A-02: a new round will not open when the active chapter ends within `OPEN_TIME`. With no active
+    ///         chapter FairCore reverts `NoActiveFair` as before. A round that is already live is unaffected and still ends at the chapter hard stop.
     function shoot(uint256 maxPrice, address player, uint256 expectedRound)
         external
         nonReentrant
@@ -167,6 +171,13 @@ contract LastArrow is ReentrancyGuard {
         if (!live) {
             // The previous round is over: settle it (if nobody has) so its winners are locked in, then open a new one.
             if (id != 0 && !R.settled) _settle(id);
+            // A-02: refuse a new round that would open into the last OPEN_TIME of the active chapter.
+            // With no active chapter, FairCore still reverts NoActiveFair further down, as before.
+            (bool active, uint256 fairId) = core.activeFair();
+            if (active) {
+                (, uint64 fairEnd) = core.fairs(fairId);
+                if (uint64(block.timestamp) + OPEN_TIME >= fairEnd) revert ChapterEndingSoon();
+            }
             id = ++currentRound;
             R = rounds[id];
             uint64 t = uint64(block.timestamp);
