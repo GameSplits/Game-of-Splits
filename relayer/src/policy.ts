@@ -2,6 +2,27 @@
 
 export const LOW_BALANCE_WEI = 5_000_000_000_000_000n;
 
+/** At most one alert of a given kind inside `windowMs`. Used for low-balance noise. */
+export class AlertWindow {
+  private last = 0;
+  private readonly windowMs: number;
+  constructor(windowMs: number) {
+    this.windowMs = windowMs;
+  }
+  due(now: number): boolean {
+    if (now - this.last < this.windowMs) return false;
+    this.last = now;
+    return true;
+  }
+  reset(): void {
+    this.last = 0;
+  }
+}
+
+/** Shared low-balance alert gate for /health and the send path (5 minutes). */
+export const LOW_BALANCE_ALERT = new AlertWindow(300_000);
+
+
 export type Sim =
   | { ok: true }
   | { ok: false; kind: "price"; price: bigint; maxPrice: bigint }

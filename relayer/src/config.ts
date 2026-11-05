@@ -157,24 +157,44 @@ export interface OriginPolicy {
 }
 
 export const DEFAULT_ALLOW_ORIGIN = "https://testnet.gameofsplits.fun,https://gos-testnet.vercel.app";
-/** Vercel preview URLs for the gos-testnet and gos-staging projects on the game-of-splits team. */
-export const DEFAULT_ALLOW_ORIGIN_PATTERN = "^https://gos-(testnet|staging)-[a-z0-9-]+-game-of-splits\\.vercel\\.app$";
+/**
+ * Preview URLs for our gos-testnet and gos-staging projects on the game-of-splits team only.
+ * Used on testnet (46630). Mainnet (4663) never loads a preview pattern: use the exact list (gameofsplits.fun and www).
+ */
+export const DEFAULT_ALLOW_ORIGIN_PATTERN =
+  "^https://gos-(testnet|staging)-[a-z0-9-]+-game-of-splits\\.vercel\\.app$";
 
-/** `ALLOW_ORIGIN` is a comma-separated list of exact origins. `ALLOW_ORIGIN_PATTERN` is one regex for preview URLs; set it to "off" to allow exact origins only. */
-export function loadOrigins(env: NodeJS.ProcessEnv): OriginPolicy {
-  const listRaw = (env.ALLOW_ORIGIN ?? "").trim() || DEFAULT_ALLOW_ORIGIN;
+export const MAINNET_CHAIN_ID = 4663;
+
+/**
+ * Exact origins from `ALLOWED_ORIGINS` or `ALLOW_ORIGIN` (comma-separated).
+ * Optional `ALLOW_ORIGIN_PATTERN` is one anchored regex for Vercel previews and is testnet-only
+ * (off when CHAIN_ID is 4663, or when the value is "off"). Signatures still protect every action.
+ */
+export function loadOrigins(env: NodeJS.ProcessEnv, chainId?: number): OriginPolicy {
+  const listRaw = (env.ALLOWED_ORIGINS ?? env.ALLOW_ORIGIN ?? "").trim() || DEFAULT_ALLOW_ORIGIN;
   const exact = listRaw
     .split(",")
     .map((s) => s.trim().replace(/\/+$/, ""))
     .filter((s) => s.length > 0);
   for (const origin of exact) {
-    if (origin === "*" || !/^https?:\/\/[^/\s]+$/.test(origin)) throw new Error("ALLOW_ORIGIN must list exact http(s) origins");
+    if (origin === "*" || !/^https?:\/\/[^/\s]+$/.test(origin)) {
+      throw new Error("ALLOW_ORIGIN must list exact http(s) origins");
+    }
   }
-  const patRaw = (env.ALLOW_ORIGIN_PATTERN ?? "").trim() || DEFAULT_ALLOW_ORIGIN_PATTERN;
+  const chain = chainId ?? Number((env.CHAIN_ID ?? "").trim() || "0");
+  const patRaw = (env.ALLOW_ORIGIN_PATTERN ?? "").trim();
   let pattern: RegExp | null = null;
-  if (patRaw !== "off") {
-    if (!patRaw.startsWith("^") || !patRaw.endsWith("$")) throw new Error("ALLOW_ORIGIN_PATTERN must be anchored with ^ and $");
-    pattern = new RegExp(patRaw);
+  // Mainnet and an explicit off use the exact list only. A stranger's Vercel project cannot match the default.
+  if (chain !== MAINNET_CHAIN_ID && patRaw !== "off") {
+    const raw = patRaw || DEFAULT_ALLOW_ORIGIN_PATTERN;
+    if (!raw.startsWith("^") || !raw.endsWith("$")) {
+      throw new Error("ALLOW_ORIGIN_PATTERN must be anchored with ^ and $");
+    }
+    if (!raw.includes("game-of-splits")) {
+      throw new Error("ALLOW_ORIGIN_PATTERN must name the game-of-splits team");
+    }
+    pattern = new RegExp(raw);
   }
   return { exact, pattern };
 }

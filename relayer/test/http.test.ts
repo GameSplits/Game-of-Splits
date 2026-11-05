@@ -6,9 +6,9 @@ import { privateKeyToAccount } from "viem/accounts";
 import { stashAbi } from "../src/abi.ts";
 import { TESTNET_STASH, loadConfig } from "../src/config.ts";
 import { shootTypes, stashDomain, takeTypes, withdrawTypes } from "../src/eip712.ts";
-import { clientIp, handle, type HandleCtx, type HandleInput } from "../src/http.ts";
+import { clientIp, handle, resetHealthGate, type HandleCtx, type HandleInput } from "../src/http.ts";
 import { pingHealthcheck } from "../src/ping.ts";
-import { NonceQueue, OwnerNonceGuard, RateLimit, ResignBook, SpendBudget } from "../src/policy.ts";
+import { LOW_BALANCE_ALERT, NonceQueue, OwnerNonceGuard, RateLimit, ResignBook, SpendBudget } from "../src/policy.ts";
 
 const KEY = `0x${"11".repeat(32)}` as Hex;
 const OWNER_KEY = `0x${"33".repeat(32)}` as Hex;
@@ -290,6 +290,7 @@ test("unknown routes and the wrong verb are rejected", async () => {
 });
 
 test("health reports a low balance and alerts", async () => {
+  resetHealthGate();
   const h = harness();
   h.ctx.deps.ethBalance = async () => 1n;
   const out = await handle(h.ctx, { method: "GET", path: "/health", route: null, headers: {}, body: "" });
@@ -303,7 +304,69 @@ test("health reports a low balance and alerts", async () => {
   assert.equal(h.alerts[0].includes(KEY), false);
 });
 
+test("health caches the body and dedupes low-balance alerts", async () => {
+  resetHealthGate();
+  let t = 1_000_000;
+  let reads = 0;
+  const h = harness();
+  h.ctx.deps.now = () => t;
+  h.ctx.deps.ethBalance = async () => {
+    reads += 1;
+    return 1n;
+  };
+  const first = await handle(h.ctx, { method: "GET", path: "/health", route: null, headers: {}, body: "" });
+  const second = await handle(h.ctx, { method: "GET", path: "/health", route: null, headers: {}, body: "" });
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.equal(reads, 1, "second hit inside the cache window skips RPC");
+  assert.equal(h.alerts.length, 1, "one alert for the first low read");
+  t += 21_000;
+  const third = await handle(h.ctx, { method: "GET", path: "/health", route: null, headers: {}, body: "" });
+  assert.equal(third.status, 200);
+  assert.equal(reads, 2);
+  assert.equal(h.alerts.length, 1, "alert still deduped inside the alert window");
+  t += 300_000;
+  const fourth = await handle(h.ctx, { method: "GET", path: "/health", route: null, headers: {}, body: "" });
+  assert.equal(fourth.status, 200);
+  assert.equal(reads, 3);
+  assert.equal(h.alerts.length, 2);
+});
+
+test("health is rate limited per IP", async () => {
+  resetHealthGate();
+  const h = harness();
+  // READS allows 240/min; fill it from one IP then confirm another IP still works.
+  const ip = "198.51.100.77";
+  let last = await handle(h.ctx, {
+    method: "GET",
+    path: "/health",
+    route: null,
+    headers: { "x-forwarded-for": ip },
+    body: "",
+  });
+  for (let i = 0; i < 240; i += 1) {
+    last = await handle(h.ctx, {
+      method: "GET",
+      path: "/health",
+      route: null,
+      headers: { "x-forwarded-for": ip },
+      body: "",
+    });
+  }
+  assert.equal(last.status, 429);
+  assert.equal(last.body?.error, "rate limit");
+  const other = await handle(h.ctx, {
+    method: "GET",
+    path: "/health",
+    route: null,
+    headers: { "x-forwarded-for": "198.51.100.78" },
+    body: "",
+  });
+  assert.equal(other.status, 200);
+});
+
 test("health returns unavailable when the balance read fails", async () => {
+  resetHealthGate();
   const h = harness();
   h.ctx.deps.ethBalance = async () => {
     throw new Error("rpc");

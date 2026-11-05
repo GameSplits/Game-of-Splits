@@ -4,6 +4,7 @@ import {
   GasCapError,
   GasLimitError,
   LOW_BALANCE_WEI,
+  LOW_BALANCE_ALERT,
   MemoryUsedOrders,
   NonceQueue,
   OwnerNonceGuard,
@@ -269,7 +270,9 @@ export async function submitShot(deps: RelayDeps, state: RelayState, req: ShotRe
     }
     if (!sim.ok) return simFailure(sim, req.maxPrice, false);
     const balance = await deps.ethBalance();
-    if (balance < LOW_BALANCE_WEI) await deps.alert("relayer balance below 0.005 ETH");
+    if (balance < LOW_BALANCE_WEI && LOW_BALANCE_ALERT.due(deps.now())) {
+      await deps.alert("relayer balance below 0.005 ETH");
+    }
     const sent = await sendOnceOrTwice(deps, state, req.calldata, req.gasCap, bumped, req.account === true);
     if (sent.status === 200) {
       // Counted only for a call that passed its checks and was sent. The in-flight guard keeps this owner serial.

@@ -196,8 +196,8 @@ Primary types and fields, in this order:
 | `RELAY_ACCOUNT_BUDGET_SHARE` | no | Share of `RELAY_ETH_PER_HOUR` kept for authorize key, set limit and revoke key. Plays get the rest, so account actions never pause plays. Default `0.25` |
 | `RELAY_ETH_PER_HOUR` | no | ETH the relayer may commit to gas in any rolling hour, per instance. Default `0.02` |
 | `ERC1271_CODEHASHES` | no | comma-separated code hashes of contract wallets whose non-65-byte signatures are checked. Default empty, which refuses all of them |
-| `ALLOW_ORIGIN` | no | comma-separated exact origins. Default `https://testnet.gameofsplits.fun,https://gos-testnet.vercel.app`. `*` is refused |
-| `ALLOW_ORIGIN_PATTERN` | no | one anchored regex for preview origins. Default matches gos-testnet and gos-staging previews on the game-of-splits team. `off` disables it |
+| `ALLOW_ORIGIN` / `ALLOWED_ORIGINS` | no | comma-separated exact origins. Default `https://testnet.gameofsplits.fun,https://gos-testnet.vercel.app`. `*` is refused. Mainnet should list `https://gameofsplits.fun` and `https://www.gameofsplits.fun` only |
+| `ALLOW_ORIGIN_PATTERN` | no | one anchored regex for our Vercel previews. Default matches gos-testnet and gos-staging on the game-of-splits team and is off when `CHAIN_ID` is 4663. `off` disables it |
 | `PORT` | local only | default `8787`. Vercel ignores it |
 
 The process refuses to start on any other chain id or Stash address. A filled `.env` is gitignored. Copy `.env.example`.

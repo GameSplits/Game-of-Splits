@@ -4,7 +4,7 @@ import { getAddress, type Address } from "viem";
 import { assertSignature, HttpError, parseAction, ZERO_ADDRESS, type WalletReader } from "./actions.ts";
 import { isAllowedOrigin, type OriginPolicy, type RelayerConfig } from "./config.ts";
 import type { SignedAction } from "./eip712.ts";
-import { LOW_BALANCE_WEI, RateLimit } from "./policy.ts";
+import { LOW_BALANCE_ALERT, LOW_BALANCE_WEI, RateLimit } from "./policy.ts";
 import { submitShot, type RelayDeps, type RelayState } from "./relay.ts";
 
 export interface HandleCtx {
@@ -38,6 +38,9 @@ export interface HandleOutput {
 
 /** Reads of /lines get their own, larger budget, so page polls never use up a player's budget for takes. */
 const READS = new RateLimit(240, 60_000);
+/** Serve a fresh health body for this long so spam cannot force a balance RPC every hit. */
+const HEALTH_CACHE_MS = 20_000;
+let healthCache: { at: number; out: HandleOutput } | null = null;
 
 const ACTIONS = ["shoot", "take", "withdraw", "authorize-key", "set-limit", "revoke-key"] as const;
 type ActionName = (typeof ACTIONS)[number];
@@ -113,6 +116,9 @@ async function route(ctx: HandleCtx, input: HandleInput): Promise<HandleOutput &
   const name = input.route && input.route.length > 0 ? input.route : barePath(input.path).replace(/^\//, "");
   if (name === "health") {
     if (input.method !== "GET") return { status: 405, body: { ok: false, error: "method" } };
+    if (!READS.allow(clientIp(input.headers), ctx.deps.now())) {
+      return { status: 429, body: { ok: false, error: "rate limit" } };
+    }
     return health(ctx);
   }
   if (name === "lines") {
@@ -249,11 +255,17 @@ function hasCustomLine(raw: string): boolean {
 }
 
 async function health(ctx: HandleCtx): Promise<HandleOutput> {
+  const now = ctx.deps.now();
+  if (healthCache && now - healthCache.at < HEALTH_CACHE_MS) {
+    return healthCache.out;
+  }
   try {
     const balance = await ctx.deps.ethBalance();
     const low = balance < LOW_BALANCE_WEI;
-    if (low) await ctx.deps.alert("relayer balance below 0.005 ETH");
-    return {
+    if (low && LOW_BALANCE_ALERT.due(now)) {
+      await ctx.deps.alert("relayer balance below 0.005 ETH");
+    }
+    const out: HandleOutput = {
       status: 200,
       body: {
         ok: true,
@@ -264,9 +276,17 @@ async function health(ctx: HandleCtx): Promise<HandleOutput> {
         relayer: ctx.relayer,
       },
     };
+    healthCache = { at: now, out };
+    return out;
   } catch {
     return { status: 503, body: { ok: false, error: "balance unavailable" } };
   }
+}
+
+/** Test helper: drop the in-process health cache and alert gate. */
+export function resetHealthGate(): void {
+  healthCache = null;
+  LOW_BALANCE_ALERT.reset();
 }
 
 export function toResponse(out: HandleOutput, cors: Record<string, string>): Response {

@@ -1,3 +1,4 @@
+import { LOW_BALANCE_ALERT } from "../src/policy.ts";
 import assert from "node:assert/strict";
 import { keccak256, toBytes } from "viem";
 import test from "node:test";
@@ -172,6 +173,7 @@ test("wrong round offers one resign inside the original max", async () => {
 });
 
 test("low balance alerts and the alert text has no key", async () => {
+  LOW_BALANCE_ALERT.reset();
   const d = deps({ ethBalance: async () => 1n });
   await submitShot(d, state(), { owner: "0xabc", maxPrice: 1n, replaces: false, calldata: "0x1234" });
   assert.equal(d.alerts.length, 1);
