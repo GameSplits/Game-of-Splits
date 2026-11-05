@@ -1,0 +1,12 @@
+{
+  "name": "gos-lockwatch-cf",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "4.158.0"
+  }
+}

@@ -1,0 +1,32 @@
+name = "gos-lockwatch-testnet"
+main = "src/index.mjs"
+compatibility_date = "2026-11-05"
+workers_dev = true
+
+[durable_objects]
+bindings = [
+  { name = "LOCKWATCH", class_name = "LockwatchDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LockwatchDO"]
+
+[vars]
+CHAIN_ID = "46630"
+RAT = "0xfB1E167CDA749f7acd8E6FDC8a8Db7FF4a9c36e9"
+DRY_RUN = "1"
+FALLBACK = "0"
+POLL_MS = "8000"
+MAX_FEE_GWEI = "1"
+# RPC_URL, LOCKWATCH_KEY, PUSHOVER_* are secrets (set via wrangler/API). DRY_RUN=1 needs no key.
+
+[env.mainnet]
+name = "gos-lockwatch-mainnet"
+workers_dev = true
+vars = { CHAIN_ID = "4663", DRY_RUN = "1", FALLBACK = "0", POLL_MS = "2000", MAX_FEE_GWEI = "1" }
+# RAT set after mainnet deploy. DO binding inherited; redeclare for clarity.
+
+[[env.mainnet.durable_objects.bindings]]
+name = "LOCKWATCH"
+class_name = "LockwatchDO"
