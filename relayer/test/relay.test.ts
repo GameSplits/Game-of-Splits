@@ -273,6 +273,16 @@ test("decode PriceAboveMax and WrongRound", () => {
   const nested = simulationFromError({ cause: { data: bad } });
   if (!nested.ok && nested.kind === "other") assert.equal(nested.reason, "bad signature");
   else assert.fail("expected a nested bad signature");
+  for (const [name, reason] of [
+    ["ChapterEndingSoon", "A new round can't start in the last hour of a chapter"],
+    ["TooManyEntries", "This wallet already has 3 outlaws in this round"],
+  ] as const) {
+    const data = encodeErrorResult({ abi: gameErrors, errorName: name });
+    const sim = decodeRevert(data);
+    assert.equal(sim.ok, false);
+    if (!sim.ok && sim.kind === "other") assert.equal(sim.reason, reason);
+    else assert.fail("expected " + name);
+  }
 });
 
 test("a failed simulation is not sent", async () => {

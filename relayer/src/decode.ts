@@ -50,6 +50,8 @@ export const gameErrors = [
   { type: "error", name: "Paused", inputs: [] },
   { type: "error", name: "NoActiveFair", inputs: [] },
   { type: "error", name: "BadColor", inputs: [] },
+  { type: "error", name: "ChapterEndingSoon", inputs: [] },
+  { type: "error", name: "TooManyEntries", inputs: [] },
 ] as const;
 
 const errorString = [
@@ -80,6 +82,8 @@ const reasons: Record<string, string> = {
   Paused: "sales paused",
   NoActiveFair: "no active fair",
   BadColor: "bad color",
+  ChapterEndingSoon: "A new round can't start in the last hour of a chapter",
+  TooManyEntries: "This wallet already has 3 outlaws in this round",
 };
 
 function hexData(value: unknown): Hex | null {
