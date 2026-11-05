@@ -6,7 +6,8 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "run-once": "node src/keeper.mjs"
+    "run-once": "node src/keeper.mjs",
+    "rat-runner": "node src/ratrunner.mjs"
   },
   "dependencies": {
     "viem": "2.57.5"
