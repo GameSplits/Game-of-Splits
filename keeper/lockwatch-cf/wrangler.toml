@@ -15,13 +15,13 @@ new_sqlite_classes = ["LockwatchDO"]
 [vars]
 CHAIN_ID = "46630"
 RAT = "0xfB1E167CDA749f7acd8E6FDC8a8Db7FF4a9c36e9"
-DRY_RUN = "1"
-FALLBACK = "0"
+DRY_RUN = "0"
+FALLBACK = "1"
 POLL_MS = "8000"
 MAX_FEE_GWEI = "1"
 # testnet keeper and the old shared key (local runner): lockwatch never sends as these
 FORBID_SENDERS = "0xf79640C55805A3dc50F4d07AaA8Dfb52bbAa35E1,0x074d2447775506B25D472Db137817Ee7c05a3A21"
-# RPC_URL, LOCKWATCH_KEY, PUSHOVER_* are secrets (set via wrangler/API). DRY_RUN=1 needs no key.
+# RPC_URL, LOCKWATCH_KEY, PUSHOVER_* are secrets (set via wrangler/API). Live testnet uses DRY_RUN=0 + FALLBACK=1.
 
 [env.mainnet]
 name = "gos-lockwatch-mainnet"
@@ -29,7 +29,7 @@ workers_dev = true
 # DRY_RUN=0: live sends. RAT is the mainnet Robin Among Thieves from deployments/4663.json: it does not exist until
 # the mainnet deploy, so it is empty here and the worker refuses to start (missing env RAT) until it is filled in.
 # FORBID_SENDERS: the mainnet keeper. Lockwatch has its own key (secret LOCKWATCH_KEY) and refuses to send as these.
-vars = { CHAIN_ID = "4663", RAT = "", DRY_RUN = "0", FALLBACK = "0", POLL_MS = "2000", MAX_FEE_GWEI = "1", FORBID_SENDERS = "0x4696ebA115691d7AA5A3bb810F172cdb7DCF21E5" }
+vars = { CHAIN_ID = "4663", RAT = "", DRY_RUN = "0", FALLBACK = "1", POLL_MS = "2000", MAX_FEE_GWEI = "1", FORBID_SENDERS = "0x4696ebA115691d7AA5A3bb810F172cdb7DCF21E5" }
 # DO binding inherited; redeclare for clarity. Mainnet deploy of this worker needs the owner's yes.
 
 [[env.mainnet.durable_objects.bindings]]
