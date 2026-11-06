@@ -7,12 +7,8 @@ const KEY = /^0x[0-9a-fA-F]{64}$/;
 export const TESTNET_CHAIN_ID = 46630;
 export const MAINNET_CHAIN_ID = 4663;
 export const TESTNET_STASH = getAddress("0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3");
-/**
- * Stash on Robinhood Chain mainnet 4663. Null until DeployStashMainnet has run. Set it from
- * contracts/deployments/4663.json in the same change that ships the mainnet relayer. While it is null
- * the relayer refuses to start on 4663.
- */
-export const MAINNET_STASH: Address | null = null;
+/** Stash on Robinhood Chain mainnet 4663, from contracts/deployments/4663.json. */
+export const MAINNET_STASH: Address | null = getAddress("0x46d56Ecf2fF7C3c32be968412584B6177461b3BD");
 /** Public address of the testnet relayer. The key stays in RELAYER_KEY. */
 export const RELAYER_ADDRESS = getAddress("0x58941E09432D2EF6316FA3b99476e69e68933c94");
 

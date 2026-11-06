@@ -53,10 +53,10 @@ test("testnet still loads with its pinned Stash", () => {
   assert.equal(cfg.stash, TESTNET_STASH);
 });
 
-test("mainnet refuses to start while its Stash is not pinned", () => {
-  assert.equal(MAINNET_STASH, null);
-  assert.throws(() => loadConfig(env({ CHAIN_ID: "4663", STASH: TESTNET_STASH })), /STASH for 4663 is not pinned/);
-  assert.throws(() => loadConfig(env({ CHAIN_ID: "4663", STASH: FAKE_MAINNET_STASH })), /STASH for 4663 is not pinned/);
+test("mainnet is pinned to the deployed Stash and refuses any other", () => {
+  assert.equal(MAINNET_STASH, getAddress("0x46d56Ecf2fF7C3c32be968412584B6177461b3BD"));
+  assert.throws(() => loadConfig(env({ CHAIN_ID: "4663", STASH: TESTNET_STASH })), /STASH must be the 4663 deployment/);
+  assert.throws(() => loadConfig(env({ CHAIN_ID: "4663", STASH: FAKE_MAINNET_STASH })), /STASH must be the 4663 deployment/);
 });
 
 test("mainnet with a pinned Stash loads 4663 and only that Stash", () => {

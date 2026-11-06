@@ -185,7 +185,7 @@ Primary types and fields, in this order:
 | --- | --- | --- |
 | `CHAIN_ID` | yes | `46630` on testnet or `4663` on mainnet. Any other value, or none, refuses to start. There is no default chain |
 | `RPC_URL` | yes | the testnet RPC, for example `https://rpc.testnet.chain.robinhood.com` |
-| `STASH` | yes | must equal the Stash pinned for that chain in `src/config.ts` (`CHAINS`). Testnet is `0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3`. Mainnet `MAINNET_STASH` is null until DeployStashMainnet has run, and while it is null the relayer refuses to start on 4663 |
+| `STASH` | yes | must equal the Stash pinned for that chain in `src/config.ts` (`CHAINS`). Testnet is `0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3`. Mainnet is `0x46d56Ecf2fF7C3c32be968412584B6177461b3BD` |
 | `RELAYER_KEY` | yes | hex key for `0x58941E09432D2EF6316FA3b99476e69e68933c94`. Dashboard or shell only |
 | `HEALTHCHECK_URL` | no | POST target used when the balance is under 0.005 ETH |
 | `PRIORITY_GWEI` | no | priority fee in gwei. Default `0.02` |
