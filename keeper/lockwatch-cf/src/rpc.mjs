@@ -100,8 +100,8 @@ export function decodeUint(hex) {
   return BigInt(hex);
 }
 
-export async function ethGetTransactionCount(rpcUrl, address) {
-  const hex = await rpc(rpcUrl, "eth_getTransactionCount", [address, "pending"]);
+export async function ethGetTransactionCount(rpcUrl, address, tag = "pending") {
+  const hex = await rpc(rpcUrl, "eth_getTransactionCount", [address, tag]);
   return BigInt(hex);
 }
 

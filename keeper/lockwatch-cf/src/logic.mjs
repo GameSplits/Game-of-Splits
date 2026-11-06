@@ -37,6 +37,28 @@ export function afterRevert(action, round) {
   return "failed";
 }
 
+/** Send failures that mean another sender already used this nonce or this tx is already in the pool. */
+export const NONCE_RACE = /nonce too low|already known|replacement transaction underpriced|nonce has already been used|known transaction/i;
+
+/**
+ * After eth_sendRawTransaction throws: "raced" if the round already moved past this step (another caller did it),
+ * "nonce" if the RPC reports a nonce or duplicate race and the round is still waiting (retry next tick, no page),
+ * else "failed" (page).
+ */
+export function afterSendFailure(action, round, message) {
+  if (afterRevert(action, round) === "raced") return "raced";
+  if (NONCE_RACE.test(String(message || ""))) return "nonce";
+  return "failed";
+}
+
+/** Addresses this worker must never send from (the keeper, the deployer): one sender per key. */
+export function parseForbidden(list) {
+  return String(list || "")
+    .split(",")
+    .map((a) => a.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 export function loadLockwatchConfig(env) {
   const need = (k) => {
     if (!env[k]) throw new Error(`missing env ${k}`);
@@ -55,7 +77,11 @@ export function loadLockwatchConfig(env) {
     pushoverGroup: env.PUSHOVER_GROUP ?? "",
     alertFile: env.ALERT_FILE ?? "",
     noAlerts: env.NO_ALERTS === "1",
+    forbidSenders: parseForbidden(env.FORBID_SENDERS),
   };
+  for (const a of cfg.forbidSenders) {
+    if (!/^0x[0-9a-f]{40}$/.test(a)) throw new Error("FORBID_SENDERS must be comma-separated addresses");
+  }
   if (!/^0x[0-9a-fA-F]{40}$/.test(cfg.rat)) throw new Error("env RAT is not an address");
   if (![4663, 46630].includes(cfg.chainId)) throw new Error("CHAIN_ID must be 4663 or 46630");
   if (cfg.key && !(/^0x[0-9a-fA-F]{64}$/.test(cfg.key))) throw new Error("LOCKWATCH_KEY must be a 32-byte hex key");

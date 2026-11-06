@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { planRound, loadLockwatchConfig, PAIR_STEPS, afterRevert } from "./logic.mjs";
+import { planRound, loadLockwatchConfig, PAIR_STEPS, afterRevert, afterSendFailure } from "./logic.mjs";
 import {
   calldata, getBlock, ethCallOk, ethCall, decodeRounds, decodeUint,
   ethGetTransactionCount, ethEstimateGas, ethSendRawTransaction, waitReceipt,
@@ -174,7 +174,20 @@ export class LockwatchDO extends DurableObject {
       }
       // Live send (DRY_RUN=0). Config loader already requires key + alert channel.
       const from = accountAddress(cfg.key);
-      const nonce = await ethGetTransactionCount(cfg.rpcUrl, from);
+      // One sender per key: never send from the keeper or another reserved address.
+      if (cfg.forbidSenders.includes(from.toLowerCase())) {
+        await warn(r, `LOCKWATCH_KEY is a reserved address (${from}); not sending. Give lockwatch its own key`);
+        continue;
+      }
+      const [nonce, latest] = await Promise.all([
+        ethGetTransactionCount(cfg.rpcUrl, from),
+        ethGetTransactionCount(cfg.rpcUrl, from, "latest"),
+      ]);
+      if (nonce !== latest) {
+        // A tx from this key is still pending: ours from an earlier tick, or another process using the same key.
+        await log(`round ${r}: ${from} has a pending tx (latest ${latest}, pending ${nonce}), skipping this tick`);
+        continue;
+      }
       let gasLimit;
       try {
         gasLimit = await ethEstimateGas(cfg.rpcUrl, { from, to: cfg.rat, data });
@@ -199,7 +212,17 @@ export class LockwatchDO extends DurableObject {
       try {
         hash = await ethSendRawTransaction(cfg.rpcUrl, raw);
       } catch (e) {
-        await warn(r, `${plan.action} send failed (${e.message})`);
+        // Race check, as on the revert path: another caller may already have done this step, or used this nonce.
+        let how = "failed";
+        try {
+          const nowRound = decodeRounds(await ethCall(cfg.rpcUrl, cfg.rat, calldata("rounds", [r])));
+          how = afterSendFailure(plan.action, nowRound, e.message);
+        } catch (e2) {
+          await log(`round ${r}: re-read after send failure failed (${e2.message})`);
+        }
+        if (how === "raced") await log(`round ${r}: ${plan.action} send failed, another caller already did it (${e.message})`);
+        else if (how === "nonce") await log(`round ${r}: ${plan.action} send hit a nonce race (${e.message}), retrying next tick`);
+        else await warn(r, `${plan.action} send failed (${e.message})`);
         continue;
       }
       await log(`round ${r}: sent ${plan.action} ${hash}`);
