@@ -178,7 +178,7 @@ test("low balance alerts and the alert text has no key", async () => {
   await submitShot(d, state(), { owner: "0xabc", maxPrice: 1n, replaces: false, calldata: "0x1234" });
   assert.equal(d.alerts.length, 1);
   assert.equal(d.alerts[0].includes(KEY), false);
-  assert.match(d.alerts[0], /0\.005 ETH/);
+  assert.match(d.alerts[0], /0\.0005 ETH/);
   assert.equal(d.sent.length, 1);
 });
 

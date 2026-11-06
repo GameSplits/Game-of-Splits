@@ -271,7 +271,7 @@ export async function submitShot(deps: RelayDeps, state: RelayState, req: ShotRe
     if (!sim.ok) return simFailure(sim, req.maxPrice, false);
     const balance = await deps.ethBalance();
     if (balance < LOW_BALANCE_WEI && LOW_BALANCE_ALERT.due(deps.now())) {
-      await deps.alert("relayer balance below 0.005 ETH");
+      await deps.alert("relayer balance below 0.0005 ETH");
     }
     const sent = await sendOnceOrTwice(deps, state, req.calldata, req.gasCap, bumped, req.account === true);
     if (sent.status === 200) {

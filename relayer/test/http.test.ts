@@ -301,7 +301,7 @@ test("health reports a low balance and alerts", async () => {
   assert.equal(out.body?.chainId, 46630);
   assert.equal(String(out.body?.stash).toLowerCase(), TESTNET_STASH.toLowerCase());
   assert.equal(h.alerts.length, 1);
-  assert.match(h.alerts[0], /0\.005 ETH/);
+  assert.match(h.alerts[0], /0\.0005 ETH/);
   assert.equal(h.alerts[0].includes(KEY), false);
   assert.equal(out.body?.state, "memory");
 });

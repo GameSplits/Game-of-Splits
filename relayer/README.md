@@ -19,7 +19,7 @@ A quoted price that moved and still sits inside the signed max is simulated once
 
 Limits are 60 requests per IP in a 60-second window, counted on every request before any other work. Each owner gets 30 relayed calls in a 60-second window and 60 in an hour, counted only after the signature check and the simulation pass and the call is sent, so nobody else can use up an owner's allowance with junk or replayed orders. Every send reserves its gas limit times its max fee against `RELAY_ETH_PER_HOUR` (default 0.02 ETH) over a rolling hour. When that is spent the relay answers `relay paused`, sends nothing and raises one alert, and resumes as the window rolls. A withdraw must be above the withdrawal fee (`WITHDRAW_FEE` in USDG units, default 1000000 = 1 USDG), and the owner's Stash balance must also be above it, read from the Stash before the call is sent. A relayed authorize key or set limit needs a Stash balance of at least `RELAY_ACCOUNT_MIN_BALANCE`, or it is refused with `deposit first`. A relayed revoke key is always accepted while the owner has a live key, so a key can always be cut off, and each owner gets 3 relayed revokes an hour. A revoke with no live key needs the same balance. Account actions reserve gas from their own share of the hourly budget (`RELAY_ACCOUNT_BUDGET_SHARE`) and plays from the rest. A Take carries only its preset line; a body with its own `line` is refused and `/lines` answers empty. The IP is the first `x-forwarded-for` hop, or the socket address when that header is absent. Counters live in the process. On Vercel each instance keeps its own, which is enough for this testnet.
 
-Below 0.005 ETH the relayer logs `ALERT relayer balance below 0.005 ETH`, sets `low: true` on `GET /health`, and POSTs to `HEALTHCHECK_URL` when that var is set. Point the URL at the monitor's failure endpoint (for healthchecks.io, the check URL plus `/fail`).
+Below 0.0005 ETH the relayer logs `ALERT relayer balance below 0.0005 ETH`, sets `low: true` on `GET /health`, and POSTs to `HEALTHCHECK_URL` when that var is set. Point the URL at the monitor's failure endpoint (for healthchecks.io, the check URL plus `/fail`).
 
 ## API
 
@@ -187,7 +187,7 @@ Primary types and fields, in this order:
 | `RPC_URL` | yes | the testnet RPC, for example `https://rpc.testnet.chain.robinhood.com` |
 | `STASH` | yes | must equal the Stash pinned for that chain in `src/config.ts` (`CHAINS`). Testnet is `0x79bf9F0B9d527b38fdD8Bcca4DD5b948290a1AE3`. Mainnet is `0x46d56Ecf2fF7C3c32be968412584B6177461b3BD` |
 | `RELAYER_KEY` | yes | hex key for `0x58941E09432D2EF6316FA3b99476e69e68933c94`. Dashboard or shell only |
-| `HEALTHCHECK_URL` | no | POST target used when the balance is under 0.005 ETH |
+| `HEALTHCHECK_URL` | no | POST target used when the balance is under 0.0005 ETH |
 | `PRIORITY_GWEI` | no | priority fee in gwei. Default `0.02` |
 | `MAX_FEE_GWEI` | no | gas price cap in gwei (base fee plus tip). Over it the relay answers 503 and sends nothing. Default `0.5`, must be above twice `PRIORITY_GWEI` |
 | `RELAY_GAS_CAP_PLAY` | no | gas cap for a relayed shoot or take. Default `900000`. The highest seen on testnet is 557,499 |
@@ -230,7 +230,7 @@ The service is one Node function, `api/relay.mjs`, because a warm instance then 
 3. Build command: `npm run build` (also set in `vercel.json`). Install command: `npm ci`.
 4. Set the env vars in the table above for Production and Preview. Set `RELAYER_KEY` in the dashboard. Do not put it in Git, in the build logs, or in a committed file.
 5. Deploy the branch. This repository change does not deploy and does not broadcast.
-6. `GET https://<deployment>/health` should show `chainId` 46630, the Stash address, `relayer` equal to `0x58941E09432D2EF6316FA3b99476e69e68933c94`, and `low: false` once that wallet holds more than 0.005 ETH.
+6. `GET https://<deployment>/health` should show `chainId` 46630, the Stash address, `relayer` equal to `0x58941E09432D2EF6316FA3b99476e69e68933c94`, and `low: false` once that wallet holds more than 0.0005 ETH.
 7. Fund `0x58941E09432D2EF6316FA3b99476e69e68933c94` with testnet ETH from a normal wallet. The relayer only spends that ETH on gas.
 
 To roll back, promote the previous Vercel deployment. The contract does not change.

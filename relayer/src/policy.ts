@@ -1,6 +1,6 @@
 // Pure relay policy. No keys, no network.
 
-export const LOW_BALANCE_WEI = 5_000_000_000_000_000n;
+export const LOW_BALANCE_WEI = 500_000_000_000_000n;
 
 /** At most one alert of a given kind inside `windowMs`. Used for low-balance noise. */
 export class AlertWindow {

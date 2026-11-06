@@ -267,7 +267,7 @@ async function health(ctx: HandleCtx): Promise<HandleOutput> {
     const balance = await ctx.deps.ethBalance();
     const low = balance < LOW_BALANCE_WEI;
     if (low && LOW_BALANCE_ALERT.due(now)) {
-      await ctx.deps.alert("relayer balance below 0.005 ETH");
+      await ctx.deps.alert("relayer balance below 0.0005 ETH");
     }
     // Memory mode in production is a misconfig. Refuse healthy so probes fail closed.
     if (ctx.storageMode === "memory" && process.env.NODE_ENV === "production") {
