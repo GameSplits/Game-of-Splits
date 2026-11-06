@@ -5,7 +5,7 @@ pragma solidity 0.8.38;
 /// the Fair0 fork sim, the Alms minimums test and e2e/run.mjs all read these values. To change the dates, edit the
 /// five times below and nothing else.
 ///
-/// Dates set by the owner on 5 Nov 2026:
+/// Chapter 0 dates (5 Nov 2026):
 ///   Chapter 0 runs 12 Nov 2026 00:00 UTC to 14 Nov 2026 00:00 UTC.
 ///   Alms suggestions open 12 Nov 00:00 UTC (option a, 5 Nov), voting opens 13 Nov 00:00 UTC, and Alms end 14 Nov 12:00 UTC.
 ///

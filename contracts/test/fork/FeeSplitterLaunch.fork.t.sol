@@ -56,7 +56,7 @@ contract FeeSplitterLaunchForkTest is Test, LaunchSplit {
         assertEq(fs.owner(), safe);
         assertEq(fs.pendingOwner(), address(0));
         assertEq(fs.TIMELOCK(), 7 days);
-        // option b (the owner, 4 Nov): 0 purses, 50% vault, 0 rebate, 40% buy and burn, 10% ops
+        // option b (4 Nov): 0 purses, 50% vault, 0 rebate, 40% buy and burn, 10% ops
         assertEq(fs.pursesBps(), 0);
         assertEq(fs.vaultBps(), 5000);
         assertEq(fs.rebateBps(), 0);

@@ -3,9 +3,9 @@
 One idempotent pass per hourly run: settle ended Last Arrow rounds and past Sheriff's Seat days, finalize/release Alms,
 then buy the buy token (`FairCore.buyToken()`, $wif at launch) for the Bonfire, the Vault burn and the Vault buy, one
 ledger at a time, only through routes whose `tokenOut()` is that token, and only while the anchor is seeded for the
-current GameConfig epoch. Rules: `contracts/RUNBOOK_KEEPER.md`.
+current GameConfig epoch. Mechanisms: `docs/OPERATIONS.md`.
 
-**DRY_RUN is on unless `DRY_RUN=0`.** It stays on until the owner's explicit approval for keeper go-live.
+**DRY_RUN is on unless `DRY_RUN=0`.**
 
 ## Where it runs
 Its own private GitHub repo (only this folder), GitHub Actions hourly: copy `workflow/keeper.yml` to

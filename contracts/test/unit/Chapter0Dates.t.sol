@@ -25,7 +25,7 @@ contract Chapter0DatesTest is Test {
         assertEq(Chapter0Dates.DEPLOY_BY, Chapter0Dates.ALMS_SUGGEST - 25 hours);
     }
 
-    function test_datesAreOwnerPick() public pure {
+    function test_datesMatchPinnedChapter0() public pure {
         assertEq(Chapter0Dates.FAIR_START, 1794441600); // 12 Nov 2026 00:00 UTC
         assertEq(Chapter0Dates.FAIR_END, 1794614400); // 14 Nov 2026 00:00 UTC
         assertEq(Chapter0Dates.ALMS_SUGGEST, 1794441600); // 12 Nov 2026 00:00 UTC

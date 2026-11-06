@@ -1,5 +1,4 @@
-// Pure decision logic for the keeper (no network). Every rule here is from RUNBOOK_KEEPER.md "Keeper script
-// requirements" and the FairCore v3.7 constants. Unit-tested in test/logic.test.mjs.
+// Pure decision logic for the keeper (no network). FairCore v3.7 constants. Unit-tested in test/logic.test.mjs.
 
 export const MIN_CHUNK = 5_000_000n; // 5 USDG: below this, skip rather than dribble
 export const MAX_CALL = 250_000_000n; // FairCore.MAX_SWAP_USDG

@@ -20,7 +20,7 @@ abstract contract LaunchSplit {
         require(play == wif && buy == wif && lockAmt == PASS_LOCK, "config tokens");
     }
 
-    /// FeeSplitter launch split, option b (the owner, 4 Nov 2026), in leg order purses, vault, rebate, burn, ops:
+    /// FeeSplitter launch split, option b (4 Nov 2026), in leg order purses, vault, rebate, burn, ops:
     /// 0% purses, 50% Locksley Vault, 0% weekly swapper rebate, 40% buy and burn ($wif to 0x...dEaD, any other token
     /// to `burnBuyer`), 10% toll and ops. On mainnet (4663) DeployFeeSplitter writes exactly this and SafeAcceptVerify
     /// checks exactly this, and FEE_SPLIT_BPS is refused (DS-1), so the deploy shell can't change what Verify accepts.
@@ -47,8 +47,8 @@ abstract contract LaunchSplit {
     }
 
     /// The five FeeSplitter legs DeployFeeSplitter sets and Verify pins (DS-3). The vault leg is always this deploy's
-    /// Locksley Vault. On mainnet the other four are the pinned Safe (the owner, 5 Nov 2026). Purses and rebate are 0 bps
-    /// but the contract needs a nonzero leg, ops is the Safe (confirmed 23:08 Bangkok), and burn is the Safe because
+    /// Locksley Vault. On mainnet the other four are the pinned Safe (5 Nov 2026). Purses and rebate are 0 bps
+    /// but the contract needs a nonzero leg, ops is the Safe, and burn is the Safe because
     /// $wif burns go straight to 0x...dEaD and no separate buy and burn contract is deployed, so only non $wif fees
     /// (ETH, USDG) reach that leg and the Safe buys and burns them by hand. If PURSES, REBATE, BURN_BUYER or OPS is set
     /// on mainnet it must equal the Safe. Off mainnet all four come from env with no defaults. None may be `deployer`.

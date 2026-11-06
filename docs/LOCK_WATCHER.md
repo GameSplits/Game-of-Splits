@@ -29,18 +29,17 @@ RPC_URL=<rpc> CHAIN_ID=4663 RAT=<RobinAmongThieves> node src/lockwatch.mjs
 Live run with its own key (never the keeper key, never committed).
 
 ```
-RPC_URL=<rpc> CHAIN_ID=4663 RAT=<addr> LOCKWATCH_KEY=<masked secret> PUSHOVER_TOKEN=<secret> PUSHOVER_GROUP=<secret> DRY_RUN=0 FALLBACK=1 node src/lockwatch.mjs
+RPC_URL=<rpc> CHAIN_ID=4663 RAT=<addr> LOCKWATCH_KEY=<masked secret> DRY_RUN=0 FALLBACK=1 node src/lockwatch.mjs
 ```
 
-`MAX_FEE_GWEI` caps the fee per call (default 1).
+Set an alert channel (`PUSHOVER_TOKEN` / `PUSHOVER_GROUP`, or `ALERT_FILE`) unless `NO_ALERTS=1`. `MAX_FEE_GWEI` caps the fee per call (default 1).
 
 ## Tests
 
-A live run refuses to start without an alert channel (Pushover, or `ALERT_FILE`), unless `NO_ALERTS=1`. Each
-round's alert fires once, not every tick.
+A live run refuses to start without an alert channel unless `NO_ALERTS=1`. Each round's alert fires once, not every tick.
 
 `npm test` in `keeper/` runs `test/lockwatch.test.mjs`, which covers the timing windows with no chain.
 
 ## Status
 
-Written and unit tested only. It has not been run against a live chain. Where it runs (a small always-on host, not the scheduled keeper workflow, since rounds need second-level reaction) is still open.
+The watcher is a separate always-on process (not the scheduled hourly keeper), because rounds need second-level reaction.

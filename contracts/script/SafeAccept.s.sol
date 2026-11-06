@@ -546,7 +546,7 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         _checkFeeSplitter(d, safe);
     }
 
-    /// BLK-5: FeeSplitter is live at mainnet launch (the owner, 5 Nov 2026). Mainnet Verify fails while the deployment file
+    /// BLK-5: FeeSplitter is live at mainnet launch (5 Nov 2026). Mainnet Verify fails while the deployment file
     /// has no `feeSplitter`. When present (any chain): the Safe owns it from the constructor with no open offer, its
     /// `wif` is this deploy's $wif (the real $wif on mainnet), the vault leg is this deploy's Locksley Vault, the
     /// other four legs are `_feeLegs` (the Safe on mainnet, PURSES/REBATE/BURN_BUYER/OPS off it) and none is DEPLOYER,

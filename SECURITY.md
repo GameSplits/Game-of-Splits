@@ -69,7 +69,7 @@ A keeper key can still buy, inside the caps: 250 USDG per FairCore ledger per ca
 
 LocksleyVault cannot pay anyone until a launcher is attached. After that, only the launcher can pull. `vaultLiqUsdg` and `vaultFairsBurnUsdg` stay inside FairCore until that pull.
 
-A round that is still open when a chapter ends attributes the shot to the chapter that was active when the USDG was taken, and the winnings to the chapter of the round's first shot. Schedule the next chapter so no round is open across the boundary. The testnet runbook records this.
+A round that is still open when a chapter ends attributes the shot to the chapter that was active when the USDG was taken, and the winnings to the chapter of the round's first shot. Schedule the next chapter so no round is open across the boundary. Schedule this on every chapter change.
 
 Testnet routes mint tWIF or tTKB at a fixed rate. They are not a price check against a pool. Mainnet routes are the v3 and v4 contracts, and they are not what 46630 runs.
 

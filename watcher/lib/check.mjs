@@ -1,4 +1,4 @@
-// One watcher pass (Vercel cron every 2 minutes). Detectors, from RUNBOOK_KEEPER.md "Detect":
+// One watcher pass (Vercel cron every 2 minutes). Detectors:
 //   price sample  route-A price for 10 USDG (V4Quoter), kept 26h; the keeper's 30-min average reads these
 //   D1 nonce      every keeper nonce maps to a logged tx that is an allowed call (re-checked onchain)
 //   D2 fill       every buyback fill, two independent checks, queued and retried until verified (fails closed):

@@ -1,4 +1,4 @@
-// Pure detector logic for the watcher (no network). Rules: RUNBOOK_KEEPER.md "Detect". Unit-tested.
+// Pure detector logic for the watcher (no network). Unit-tested.
 import { KEEPER_SELECTORS } from "./abi.mjs";
 
 export const BPS = 10_000n;

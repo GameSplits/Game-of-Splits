@@ -43,11 +43,11 @@ interface ISafeView {
 /// The one Safe that owns the game and receives the Alms (Alms Safe = owner Safe). It must be:
 ///  - a genuine Safe proxy: runtime codehash of the canonical SafeProxy (1.4.1 or 1.5.0 factory), so a contract that
 ///    only fakes the getters fails, and its singleton (slot 0) the matching SafeL2 1.4.1 / 1.5.0;
-///  - exactly the 3 expected owners (SAFE_OWNERS, set-equal, any order) with threshold 2, so a real multisig that an
+///  - exactly the 3 expected owners (SAFE_OWNERS, set-equal, any order) with threshold 2, so a real multisig Safe that an
 ///    attacker owns (clipboard swap, wrong env var) fails;
 ///  - no modules, no guard, no module guard;
 ///  - already used: nonce >= 1. Anyone can create a Safe that LISTS the real owners (setup needs no signatures), but only
-///    the owners can execute on it. Before deploying, the signers execute one no-op tx on the Safe (runbook).
+///    the owners can execute on it. Before deploying, the owners execute one no-op tx on the Safe.
 abstract contract SafeCheck is Script {
     /// PINNED SAFE ADDRESSES (locked 26 Oct). A Safe's setup can run its own code once (setup's `to`/`data`
     /// delegatecall), which can set the nonce or plant a hidden module, so owners + nonce alone don't prove a Safe is
@@ -256,7 +256,7 @@ abstract contract DeployBase is L2Head, SafeCheck, LaunchSplit {
     /// offer). FeeSplitter is not deployed here. K16-A02: a broadcast is a series of txs, not one atomic tx, so the
     /// mainnet run hands each contract over as soon as its last deployer-only call is done (`_give`), and this
     /// catch-all skips the ones already handed over. If a broadcast stops partway, `ResumeHandover` strips the deployer
-    /// of what it still owns (docs/DEPLOY_HANDOVER_RUNBOOK.md).
+    /// of what it still owns (see docs/OPERATIONS.md).
     function _handOver(Out memory o, address safe) internal {
         _give(o.config, safe);
         _give(o.core, safe);
@@ -471,8 +471,8 @@ abstract contract TestnetBase is DeployBase {
 }
 
 /// Testnet (46630): test USDG and $wif with a public faucet, a test buyback route, zero timelock.
-/// The deployer is a fresh single-use EOA and is not a Safe owner. Signer 1 (0xb44F…50bA) stays a Safe owner.
-/// SafeAcceptVerify's no-leftover-power check applies here unchanged. Do not deploy from `gos-mainnet` or from signer 1.
+/// The deployer is a fresh single-use EOA and is not a Safe owner.
+/// SafeAcceptVerify's no-leftover-power check applies here unchanged. Do not deploy from `gos-mainnet`.
 /// Password typed at the prompt only (never a password file).
 ///   cast wallet import gos-testnet --interactive
 ///   forge script script/Deploy.s.sol:DeployTestnet --rpc-url robinhood_testnet --broadcast \
@@ -490,7 +490,7 @@ contract DeployTestnet is TestnetBase {
         uint64 start = uint64(vm.envOr("FAIR_START", block.timestamp + 120));
         uint64 end = uint64(vm.envOr("FAIR_END", block.timestamp + 7 days));
         address newOwner = vm.envOr("TESTNET_OWNER", address(0));
-        // the rehearsal mirrors mainnet: one genuine 2-of-3 Safe with the pinned owners, also the Alms Safe
+        // the rehearsal mirrors mainnet: one multisig Safe with the pinned owners, also the Alms Safe
         if (newOwner != address(0)) {
             _requirePinned(newOwner, PINNED_TESTNET_SAFE, "TESTNET_OWNER");
             _checkSafe(newOwner, vm.envAddress("SAFE_OWNERS", ","), "TESTNET_OWNER");
@@ -516,10 +516,10 @@ contract DeployTestnet is TestnetBase {
 ///   forge script script/Deploy.s.sol:DeployMainnet --rpc-url robinhood --broadcast --slow \
 ///     --account gos-mainnet --sender <that address>
 /// `--slow` sends each tx only after the previous one is mined, so a dropped tx stops the run in order (K16-A02).
-/// If the run stops partway, follow docs/DEPLOY_HANDOVER_RUNBOOK.md (ResumeHandover, then redeploy fresh).
+/// If the run stops partway, run ResumeHandover, then redeploy fresh (docs/OPERATIONS.md).
 /// QuoteAnchor (script/Mainnet.s.sol) is read-only and takes no account. The broadcast ends by handing ownership of all
 /// seven contracts to the Safe (A1-14). Then SafeAcceptVerify checks the deployer has no power left, then sweep leftover
-/// gas ETH to the Safe and delete the keystore (runbook).
+/// gas ETH to the Safe and delete the keystore (docs/OPERATIONS.md).
 /// Env (required): GOS_SAFE (the owner Safe, also the Alms Safe; must equal PINNED_MAINNET_SAFE; OWNER_SAFE is
 ///   accepted as an alias and must match if both are set), SAFE_OWNERS (its 3 owners, comma-separated), KEEPER,
 ///   TOLL_RECIPIENT, ANCHOR_SEED (the 30-min average from
@@ -575,7 +575,7 @@ contract DeployMainnet is DeployBase, MainnetAddrs {
         require(msg.sender == deployer, "broadcast sender isn't the deployer");
         Out memory o = _deployGame(USDG, WIF, msg.sender, 48 hours, CONFIG_DELAY_MAINNET, 1 days);
         // K16-A02: each contract goes to the Safe right after its last deployer-only call, so a broadcast that stops
-        // partway leaves as little as possible with the deployer. ResumeHandover finishes the rest (runbook).
+        // partway leaves as little as possible with the deployer. ResumeHandover finishes the rest (docs/OPERATIONS.md).
         _give(o.config, safe); // bound to FairCore in _deployGame; nothing else needs the deployer
         _give(o.pass, safe);
         _give(o.vault, safe);
@@ -644,7 +644,7 @@ contract DeployMainnet is DeployBase, MainnetAddrs {
 
 /// K16-A02: recovery for a mainnet (or testnet rehearsal) broadcast that stopped partway. Hands every listed contract the
 /// deployer still owns to the pinned Safe, then checks the deployer owns none of them. It does not finish setup: a
-/// partial deploy is abandoned and redeployed from a new fresh EOA (docs/DEPLOY_HANDOVER_RUNBOOK.md).
+/// partial deploy is abandoned and redeployed from a new fresh EOA (docs/OPERATIONS.md).
 /// Env: GOS_SAFE, SAFE_OWNERS, and the addresses from broadcast/Deploy.s.sol/<chainId>/run-latest.json as
 /// GAME_CONFIG, FAIR_PASS, FAIR_CORE, ALMS_VOTE, LOCKSLEY_VAULT, ROBIN, RAKE_BUYER (leave out any that never deployed).
 ///   forge script script/Deploy.s.sol:ResumeHandover --rpc-url robinhood --broadcast --slow \

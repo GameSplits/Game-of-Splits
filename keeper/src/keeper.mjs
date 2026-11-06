@@ -2,7 +2,7 @@
 //   1. settle ended Last Arrow rounds and past Seat days that hold a Purse (permissionless, harmless)
 //   2. finalize due Alms votes and release (or carry) their Alms (permissionless)
 //   3. buybacks: Bonfire, Vault burn, Vault buy, ONE LEDGER AT A TIME (a fill can raise the shared anchor)
-// DRY_RUN is on unless DRY_RUN=0. Rules: RUNBOOK_KEEPER.md "Keeper script requirements".
+// DRY_RUN is on unless DRY_RUN=0.
 import { arrowAbi, seatAbi, almsAbi, coreAbi, routeAbi, quotePoolFor } from "./abi.mjs";
 import { loadConfig } from "./config.mjs";
 import { makeClients, simulateSwap, priceRouteA, send } from "./chain.mjs";

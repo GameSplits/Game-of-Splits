@@ -3,7 +3,7 @@
 # mainnet. The deploy hands all seven contracts to the Safe in the same broadcast (A1-14), so there is no accept batch.
 # DeployFeeSplitter then deploys the Safe-owned FeeSplitter (BLK-5), SafeAcceptVerify (read-only) checks all of it and
 # ResumeHandover recovers a broadcast that stopped partway.
-# Live mainnet signs with a Foundry keystore: forge script ... --account <name> --sender <addr> (RUNBOOK_KEEPER.md).
+# Live mainnet signs with a Foundry keystore: forge script ... --account <name> --sender <addr> (docs/OPERATIONS.md).
 # No keys here: anvil's --auto-impersonate stands in for the deployer and the Safe. Nothing touches the real chain.
 # Default Safe: the real pinned SafeL2 and its real owners (read from the fork). FORK_SAFE=1 uses a throwaway fork Safe
 # pinned into the temp copy instead. Runs in a temporary copy of this repo, so no deployments/4663.json is left behind.

@@ -1,7 +1,7 @@
 # Game of Splits watcher
 
 Runs every 2 minutes on **Vercel Pro, in its own project** (not the site's). Holds no private key and no GitHub
-credential. Detectors and responses: `contracts/RUNBOOK_KEEPER.md` ("Detect", "Respond").
+credential. Mechanisms: `docs/OPERATIONS.md`.
 
 | endpoint | who calls it | what |
 |---|---|---|
@@ -11,7 +11,7 @@ credential. Detectors and responses: `contracts/RUNBOOK_KEEPER.md` ("Detect", "R
 
 ## Setup
 1. Upstash Redis (free tier is enough): create a database, **turn eviction off**, copy the REST URL and token.
-2. Pushover: one application (token) and one delivery group with all three Safe signers (see the runbook).
+2. Alert channel: one application (token) and one delivery group.
 3. Vercel: new project from this folder, Pro plan. Environment variables:
    - `RPC_URL`, `ARCHIVE_RPC_URL` (an RPC that serves `eth_call` at past blocks, e.g. Alchemy; the fill check needs it)
    - `CHAIN_ID` (`4663`), `CORE`, `ARROW`, `SEAT`, `ALMS`, `PASS`, `VAULT`, `START_BLOCK` from `deployments/<chainId>.json`

@@ -36,7 +36,7 @@ contract LaunchFeeSplitTest is Test {
     function test_mainnetFeeSplit_envCases() public {
         vm.chainId(4663);
         _clear();
-        // option b (the owner, 4 Nov) in leg order purses, vault, rebate, burn, ops
+        // option b (4 Nov) in leg order purses, vault, rebate, burn, ops
         FeeSplitter.FeeSplit memory s = h.split();
         assertEq(s.pursesBps, 0);
         assertEq(s.vaultBps, 5000);
