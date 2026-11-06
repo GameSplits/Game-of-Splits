@@ -7,7 +7,7 @@ import {MainnetPins} from "../../script/MainnetPins.sol";
 
 /// P1 failing-env test: DeployMainnet on a 4663 fork, with the testnet values a stale shell would carry
 /// (deploy_tools/testnet_env.sh), refuses before broadcasting. With the pinned values it gets past the guard and stops
-/// at the next check (the deployer nonce, which a pranked test call always bumps), so nothing is deployed. One test: env is process-wide.
+/// at the next check (the deployer nonce, which a pranked test call always bumps), so nothing is deployed. One test, run alone (env is process-wide).
 contract MainnetRolesEnvForkTest is Test {
     address constant SAFE = 0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a;
     string constant OWNERS =
@@ -23,9 +23,7 @@ contract MainnetRolesEnvForkTest is Test {
     }
 
     function _env(string memory keeper, string memory toll, string memory ids) internal {
-        vm.setEnv("GOS_SAFE", vm.toString(SAFE));
-        vm.setEnv("OWNER_SAFE", vm.toString(SAFE));
-        vm.setEnv("ALMS_SAFE", vm.toString(SAFE));
+        vm.setEnv("OWNER_SAFE", vm.toString(SAFE)); // the alias only: GOS_SAFE or ALMS_SAFE would leak into other suites
         vm.setEnv("SAFE_OWNERS", OWNERS);
         vm.setEnv("KEEPER", keeper);
         vm.setEnv("TOLL_RECIPIENT", toll);
@@ -40,6 +38,9 @@ contract MainnetRolesEnvForkTest is Test {
     }
 
     function test_staleTestnetEnvRefused_pinnedEnvPasses() public {
+        // env is process-wide and other suites (TestnetDeployVerify) set the same keys in parallel, so this runs alone:
+        //   ROLES_ENV_TEST=1 forge test --match-contract MainnetRolesEnvForkTest
+        if (!vm.envOr("ROLES_ENV_TEST", false)) vm.skip(true, "set ROLES_ENV_TEST=1 and run this suite alone");
         if (!forked) vm.skip(true, "mainnet fork unavailable");
         if (block.timestamp > 1794351600) vm.skip(true, "past DEPLOY_BY");
         DeployMainnet s = new DeployMainnet();
