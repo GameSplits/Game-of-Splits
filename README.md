@@ -18,9 +18,10 @@ The play token, the pass amount, the buy token and the shot split live in **Game
 - Site: https://gameofsplits.fun
 - Testnet: https://testnet.gameofsplits.fun
 - Docs: https://docs.gameofsplits.fun
-- Frontend: https://github.com/GameSplits/gos-site
+- Frontend (private): https://github.com/GameSplits/gos-site
+- Judge tour: [JUDGES.md](JUDGES.md)
 
-Note: The frontend repo is private. Judges for the WIF hackathon will be invited to view it.
+This repo is the contracts, keeper, and watcher source. The Next.js site lives in [GameSplits/gos-site](https://github.com/GameSplits/gos-site). WIF hackathon judges are invited to those two private repos only.
 
 ## Layout
 

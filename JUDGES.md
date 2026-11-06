@@ -1,5 +1,10 @@
 # Five minute tour
 
+Repos for judges (both private):
+
+- Contracts / keeper / watcher: this repo ([GameSplits/Game-of-Splits](https://github.com/GameSplits/Game-of-Splits))
+- Site frontend: [GameSplits/gos-site](https://github.com/GameSplits/gos-site)
+
 Chain: Robinhood Chain testnet, chain id 46630. Gas is ETH. Explorer: https://explorer.testnet.chain.robinhood.com. Addresses: [`contracts/deployments/46630.json`](contracts/deployments/46630.json) and the table in [README.md](README.md).
 
 Times below are UTC. The play token and the buy token on this deployment are tWIF, the test stand-in for $WIF. Shots are paid in tUSDG.
