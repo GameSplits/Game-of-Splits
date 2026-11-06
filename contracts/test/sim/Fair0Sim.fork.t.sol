@@ -31,9 +31,10 @@ contract Fair0Sim is Test {
     uint64 constant VOTE = Chapter0Dates.ALMS_VOTE;
     uint64 constant VOTE_END = Chapter0Dates.ALMS_END; // after the chapter ends
     uint64 constant PAUSE_AT = START + 1 days + 4 hours; // day two 04:00-06:00 UTC emergency pause
-    bytes32 constant RED = keccak256("red-cross-campaign");
-    bytes32 constant BLUE = keccak256("blue-ocean-fund");
-    bytes32 constant GREEN = keccak256("green-forest-trust");
+    // the fair0.json allowlist, the only one DeployMainnet accepts on 4663 (P1, script/MainnetPins.sol)
+    bytes32 constant RED = 0xb02173170bada3eb8162396b27744f9c5ac99bed3a632b1c4d2bc9b1b366b0e8;
+    bytes32 constant BLUE = 0xc1f8523fd8f90bb29f8c20ef2dd5bce2d8a94d172083b59840e312f32a44a02b;
+    bytes32 constant GREEN = 0x48058626e8f67696c865eb4bacf23f3716d0f28968a65c29410dfc31d59fd93f;
 
     // ---------------------------------------------------------------- system
     FairPass pass;
@@ -545,10 +546,14 @@ contract Fair0Sim is Test {
         }
         assertEq(credited, 22 hours, "paused time never credited");
         // 4. Alms: all of Fair 0's Alms went to the Alms Safe for BLUE.
-        assertEq(IERC20(USDG).balanceOf(almsSafe) - almsSafeStart, almsReleased, "Alms Safe got exactly the Alms");
-        assertEq(
-            IERC20(USDG).balanceOf(vm.envAddress("TOLL_RECIPIENT")) - tollStart, tollOut, "Toll recipient got the Toll"
-        );
+        address toll = vm.envAddress("TOLL_RECIPIENT");
+        if (toll == almsSafe) {
+            // mainnet (P1): the Safe is both the Alms Safe and the toll recipient
+            assertEq(IERC20(USDG).balanceOf(almsSafe) - almsSafeStart, almsReleased + tollOut, "Safe got the Alms and the Toll");
+        } else {
+            assertEq(IERC20(USDG).balanceOf(almsSafe) - almsSafeStart, almsReleased, "Alms Safe got exactly the Alms");
+            assertEq(IERC20(USDG).balanceOf(toll) - tollStart, tollOut, "Toll recipient got the Toll");
+        }
         assertEq(almsReleased, almsExpected, "Alms = 8% of every play, rounded per play as FairCore does");
         // 5. Routes hold nothing.
         assertEq(IERC20(USDG).balanceOf(routeA) + IERC20(USDG).balanceOf(routeB), 0, "routes hold no USDG");

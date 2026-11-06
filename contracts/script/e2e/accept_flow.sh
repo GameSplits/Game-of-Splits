@@ -24,7 +24,8 @@ for i in $(seq 1 90); do "$F/cast" client --rpc-url $L 2>/dev/null | grep -qi an
 . "$E2E/fork_safe.sh"
 C=$OWNER_SAFE
 export ELIGIBLE_IDS=$(python3 -c "import json;print(json.load(open('eligible/fair0.json'))['ELIGIBLE_IDS'])")  # mainnet needs the allowlist at deploy
-export KEEPER=0x000000000000000000000000000000000000bEEF TOLL_RECIPIENT=0x000000000000000000000000000000000000cafE
+# P1: on 4663 the deploy only takes the pinned keeper (script/MainnetPins.sol) and the owner Safe as toll recipient
+export KEEPER=0x4696ebA115691d7AA5A3bb810F172cdb7DCF21E5 TOLL_RECIPIENT=$C
 SEED=$("$F/forge" script script/Mainnet.s.sol:QuoteAnchor --rpc-url $L 2>&1 | grep "x1e18:" | awk '{print $NF}')
 [ -n "$SEED" ] || { echo "QuoteAnchor gave no seed"; exit 1; }
 export ANCHOR_SEED=$SEED
@@ -45,6 +46,10 @@ echo "== 0d. deploy refuses a DIFFERENT real Safe with the same 3 owners, thresh
 TWIN=$(MAKE_SAFE_OWNERS=$SAFE_OWNERS bash "$E2E/make_safe.sh" $L 9)
 echo "  twin $TWIN threshold $("$F/cast" call $TWIN 'getThreshold()(uint256)' --rpc-url $L) nonce $("$F/cast" call $TWIN 'nonce()(uint256)' --rpc-url $L)"
 expect "GOS_SAFE: not the pinned Safe" "twin Safe refused" env -u ALMS_SAFE GOS_SAFE=$TWIN OWNER_SAFE=$TWIN bash -c "$(declare -f deploy); F=$F L=$L DEP=$DEP deploy"
+echo "== 0e. deploy refuses a stale testnet env (P1: keeper, toll recipient, allowlist are pinned on 4663)"
+expect "KEEPER is not the pinned mainnet keeper" "testnet keeper refused" env KEEPER=0xf79640C55805A3dc50F4d07AaA8Dfb52bbAa35E1 bash -c "$(declare -f deploy); F=$F L=$L DEP=$DEP deploy"
+expect "TOLL_RECIPIENT must be the owner Safe" "toll not the Safe refused" env TOLL_RECIPIENT=0x000000000000000000000000000000000000cafE bash -c "$(declare -f deploy); F=$F L=$L DEP=$DEP deploy"
+expect "ELIGIBLE_IDS must equal eligible/fair0.json" "testnet allowlist refused" env ELIGIBLE_IDS=$("$F/cast" keccak charity-a),$("$F/cast" keccak charity-b) bash -c "$(declare -f deploy); F=$F L=$L DEP=$DEP deploy"
 echo "== 0c. deploy refuses a separate Alms Safe (the Alms Safe is the owner Safe)"
 expect "ALMS_SAFE must be the owner Safe" "separate Alms Safe refused" env ALMS_SAFE=$TWIN bash -c "$(declare -f deploy); F=$F L=$L DEP=$DEP deploy"
 

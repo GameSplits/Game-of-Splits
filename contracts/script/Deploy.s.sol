@@ -22,6 +22,7 @@ import {MainnetAddrs} from "./Mainnet.s.sol";
 import {L2Head} from "./L2.s.sol";
 import {LaunchSplit} from "./LaunchSplit.s.sol";
 import {Chapter0Dates} from "./Chapter0Dates.sol";
+import {MainnetPins} from "./MainnetPins.sol";
 import {RobinAmongThieves} from "../src/RobinAmongThieves.sol";
 import {RakeBuyer} from "../src/RakeBuyer.sol";
 import {SafeHandover} from "../src/SafeHandover.sol";
@@ -56,6 +57,18 @@ abstract contract SafeCheck is Script {
     address internal constant PINNED_MAINNET_SAFE = 0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a; // Confirmed 4 Nov 2026: SafeL2 on 4663
     // Confirmed 29 Oct 2026: SafeL2 1.5.0 on Robinhood Chain testnet (46630).
     address internal constant PINNED_TESTNET_SAFE = 0xDF3d35A99af7A1A3fdE128b8FDFa0D60aE9A1F00;
+
+    /// P1 (pre-mainnet): on 4663 the keeper, the toll recipient and the Chapter 0 allowlist must be the pinned values
+    /// (script/MainnetPins.sol). A testnet env sourced by mistake is refused before anything is sent.
+    function _requireMainnetRoles(address keeper, address toll, address safe, bytes32[] memory eligible) internal view {
+        if (block.chainid != 4663) return;
+        require(keeper == MainnetPins.KEEPER, "KEEPER is not the pinned mainnet keeper");
+        require(toll == safe, "TOLL_RECIPIENT must be the owner Safe on mainnet");
+        require(
+            keccak256(abi.encode(eligible)) == keccak256(abi.encode(MainnetPins.fair0Eligible())),
+            "ELIGIBLE_IDS must equal eligible/fair0.json"
+        );
+    }
 
     /// A1-15: the owner Safe comes from env GOS_SAFE. OWNER_SAFE (the old name, still used by the rehearsal scripts)
     /// is accepted as an alias; if both are set they must agree. Non-zero and a contract, checked before anything else.
@@ -539,6 +552,9 @@ contract DeployMainnet is DeployBase, MainnetAddrs {
         _requirePinned(safe, PINNED_MAINNET_SAFE, "GOS_SAFE");
         address[] memory safeOwners = vm.envAddress("SAFE_OWNERS", ",");
         _checkSafe(safe, safeOwners, "GOS_SAFE");
+        bytes32[] memory eligible = _eligibleEnv();
+        require(eligible.length != 0, "ELIGIBLE_IDS required: the allowlist is set in the deploy");
+        _requireMainnetRoles(keeper, toll, safe, eligible); // P1: before anything else about the deployer
         // --sender / --account. Checked before the broadcast so a bad deployer never deploys.
         address deployer = msg.sender;
         _requireFreshDeployer(deployer, safe, keeper, toll, safeOwners, USDG, WIF);
@@ -548,8 +564,6 @@ contract DeployMainnet is DeployBase, MainnetAddrs {
             "Alms suggest and vote windows must each be at least 24h on mainnet"
         );
         require(block.timestamp <= DEPLOY_BY, Chapter0Dates.deployByText());
-        bytes32[] memory eligible = _eligibleEnv();
-        require(eligible.length != 0, "ELIGIBLE_IDS required: the allowlist is set in the deploy");
         uint256 seed = vm.envUint("ANCHOR_SEED");
         _checkSeed(seed); // simulation only, before the broadcast
         uint256 startBlock = _l2Head(); // before the broadcast: a lower bound on the deploy block

@@ -241,6 +241,8 @@ abstract contract AcceptBase is MainnetAddrs, SafeCheck, LaunchSplit {
         require(d.core.keeper() == vm.envAddress("KEEPER"), "keeper changed (or revoked) since deploy");
         require(d.core.tollRecipient() == vm.envAddress("TOLL_RECIPIENT"), "toll recipient");
         require(d.core.almsSafe() == _safeFromEnv(), "alms safe is the owner Safe");
+        // P1: on 4663 the live roles must equal the pins too, so a wrong env at deploy can't pass Verify with the same env
+        _requireMainnetRoles(d.core.keeper(), d.core.tollRecipient(), _safeFromEnv(), _eligibleIds());
         require(d.core.almsVote() == address(d.alms) && d.core.vault() == address(d.vault), "alms/vault wiring");
         require(!d.core.salesPaused(), "sales paused");
         require(d.vault.launcher() == address(0) && d.vault.queuedLauncher() == address(0), "launcher queued");

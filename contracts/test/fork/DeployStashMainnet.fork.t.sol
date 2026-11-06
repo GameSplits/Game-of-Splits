@@ -15,6 +15,7 @@ contract MainnetBooths is DeployBase, MainnetAddrs {
         Out memory o = _deployGame(USDG, WIF, address(this), 48 hours, CONFIG_DELAY_MAINNET, 1 days);
         o.core.setupSet(FairCore.Op.AddBooth, 0, address(o.arrow));
         o.core.setupSet(FairCore.Op.AddBooth, 0, address(o.seat));
+        o.core.transferOwnership(0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a); // the Safe accepts in the test
         return (address(o.core), address(o.arrow), address(o.seat));
     }
 }
@@ -46,6 +47,11 @@ contract DeployStashMainnetForkTest is Test {
             vm.setEnv("FAIR_CORE", vm.toString(c));
             vm.setEnv("LAST_ARROW", vm.toString(a));
             vm.setEnv("SHERIFFS_SEAT", vm.toString(s));
+            // P1: a FairCore the Safe doesn't own (not the real deploy) is refused
+            vm.expectRevert(bytes("FairCore is not owned by the Safe"));
+            script.run();
+            vm.prank(SAFE);
+            FairCore(c).acceptOwnership();
         }
         (address core, address arrow, address seat) = script.booths();
 

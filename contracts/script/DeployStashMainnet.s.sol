@@ -83,6 +83,7 @@ contract DeployStashMainnet is SafeCheck, MainnetAddrs {
         require(address(SheriffsSeat(seat).core()) == core, "SheriffsSeat is not on this FairCore");
         require(FairCore(core).isBooth(arrow) && FairCore(core).isBooth(seat), "booths are not added to FairCore");
         _checkSafe(SAFE, safeOwners(), "SAFE");
+        require(FairCore(core).owner() == SAFE, "FairCore is not owned by the Safe"); // P1: only the real deploy
 
         vm.startBroadcast();
         stash = new Stash(core, arrow, seat, USDG, SAFE, SAFE, SHOT_FEE, WITHDRAW_FEE, presetLines());

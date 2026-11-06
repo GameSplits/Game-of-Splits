@@ -24,8 +24,9 @@ for i in $(seq 1 90); do "$F/cast" client --rpc-url $L 2>/dev/null | grep -qi an
 "$F/cast" client --rpc-url $L 2>/dev/null | grep -qi anvil || { echo "no anvil at $L (refusing to run against anything else)"; exit 1; }
 [ "$("$F/cast" chain-id --rpc-url $L)" = 4663 ] || { echo "fork is not chain 4663"; exit 1; }
 . "$E2E/fork_safe.sh"  # the Safe (real pinned one by default), its owners, a fresh deployer DEP
-export KEEPER=0x000000000000000000000000000000000000bEEF TOLL_RECIPIENT=0x000000000000000000000000000000000000cafE
-export ELIGIBLE_IDS=$("$F/cast" keccak red-cross-campaign),$("$F/cast" keccak blue-ocean-fund),$("$F/cast" keccak green-forest-trust)
+# P1: on 4663 the deploy only takes the pinned keeper, the owner Safe as toll recipient and the fair0.json allowlist
+export KEEPER=0x4696ebA115691d7AA5A3bb810F172cdb7DCF21E5 TOLL_RECIPIENT=$OWNER_SAFE
+export ELIGIBLE_IDS=$(python3 -c "import json;print(json.load(open('eligible/fair0.json'))['ELIGIBLE_IDS'])")
 export ELIGIBLE_COUNT=3
 export ANCHOR_SEED=$("$F/forge" script script/Mainnet.s.sol:QuoteAnchor --rpc-url $L 2>&1 | grep "x1e18:" | awk '{print $NF}')
 echo "== 1. deploy (seed $ANCHOR_SEED)"
