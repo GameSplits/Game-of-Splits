@@ -58,6 +58,9 @@ export function fileStore(path) {
 
 export function storeFromEnv(env) {
   if (env.STATE_FILE) return fileStore(env.STATE_FILE);
-  if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) return upstashStore(env.UPSTASH_REDIS_REST_URL, env.UPSTASH_REDIS_REST_TOKEN);
-  throw new Error("watcher needs UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN (or STATE_FILE in tests)");
+  // Vercel Marketplace Upstash names (KV_*) first, then the plain Upstash names — same order as the relayer.
+  const url = (env.KV_REST_API_URL ?? env.UPSTASH_REDIS_REST_URL ?? "").trim();
+  const token = (env.KV_REST_API_TOKEN ?? env.UPSTASH_REDIS_REST_TOKEN ?? "").trim();
+  if (url && token) return upstashStore(url, token);
+  throw new Error("watcher needs KV_REST_API_URL + KV_REST_API_TOKEN (or UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN, or STATE_FILE in tests)");
 }
