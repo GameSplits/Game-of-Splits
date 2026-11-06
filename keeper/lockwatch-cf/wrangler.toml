@@ -28,7 +28,7 @@ name = "gos-lockwatch-mainnet"
 workers_dev = true
 # DRY_RUN=0: live sends. RAT is the mainnet Robin Among Thieves from contracts/deployments/4663.json.
 # FORBID_SENDERS: the mainnet keeper. Lockwatch has its own key (secret LOCKWATCH_KEY) and refuses to send as these.
-vars = { CHAIN_ID = "4663", RAT = "0x586d69120F27e04933684fe38f903ae86Bde7c2F", DRY_RUN = "0", FALLBACK = "1", POLL_MS = "2000", MAX_FEE_GWEI = "1", FORBID_SENDERS = "0x4696ebA115691d7AA5A3bb810F172cdb7DCF21E5" }
+vars = { CHAIN_ID = "4663", RAT = "0x586d69120F27e04933684fe38f903ae86Bde7c2F", DRY_RUN = "0", FALLBACK = "1", POLL_MS = "6000", MAX_FEE_GWEI = "1", FORBID_SENDERS = "0x4696ebA115691d7AA5A3bb810F172cdb7DCF21E5" }
 # DO binding inherited; redeclare for clarity. Mainnet deploy of this worker needs the owner's yes.
 
 [[env.mainnet.durable_objects.bindings]]
