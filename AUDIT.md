@@ -1,6 +1,6 @@
 # Internal review
 
-This file is the internal review record for the contracts in this repository. No audit firm has issued a report. Treat the contracts as unaudited. The public docs say the same thing: https://testnet.gameofsplits.fun/docs/security
+This file is the internal review record for the contracts in this repository. No audit firm has issued a report. Treat the contracts as unaudited. The public docs say the same thing: https://docs.gameofsplits.fun/security
 
 ## Static analysis
 

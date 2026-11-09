@@ -3,89 +3,72 @@
 Repos for judges (both private):
 
 - Contracts / keeper / watcher: this repo ([GameSplits/Game-of-Splits](https://github.com/GameSplits/Game-of-Splits))
-- Site frontend: [GameSplits/gos-site](https://github.com/GameSplits/gos-site)
+- Site frontend: [GameSplits/gos-site](https://github.com/GameSplits/gos-site) (see its README)
 
-Chain: Robinhood Chain testnet, chain id 46630. Gas is ETH. Explorer: https://explorer.testnet.chain.robinhood.com. Addresses: [`contracts/deployments/46630.json`](contracts/deployments/46630.json) and the table in [README.md](README.md).
+Chain: **Robinhood Chain mainnet, chain id 4663.** Gas is ETH. RPC `https://rpc.mainnet.chain.robinhood.com`. Explorer: https://robinhoodchain.blockscout.com. Every address is in [`contracts/deployments/4663.json`](contracts/deployments/4663.json) (deploy start block 107503866).
 
-Times below are UTC. The play token and the buy token on this deployment are tWIF, the test stand-in for $WIF. Shots are paid in tUSDG.
+The play token and the buy token are $WIF (`0x5173b8eA6923c2d40267890D45C46a3480954773`, 18 decimals). Shots are paid in USDG (`0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`, 6 decimals). Times below are UTC.
+
+Chapter 0 on mainnet runs from 12 Nov 2026 00:00 UTC to 14 Nov 2026 00:00 UTC (`fairs(0)` on FairCore). Outside a chapter a new shot or take reverts `NoActiveFair`. Passes, claims and reads work at any time.
 
 ## What to click
 
-1. Open https://testnet.gameofsplits.fun and connect a wallet on chain 46630. The public RPC is `https://rpc.testnet.chain.robinhood.com`.
-2. Open [Test tokens](https://testnet.gameofsplits.fun/faucet). The header link is Test tokens. `faucet()` on tUSDG mints 1,000 tUSDG. `faucet()` on tWIF mints 50,000 tWIF. Each address can mint each token once an hour. You need tWIF for a pass and tUSDG to shoot.
-3. Open [Pass](https://testnet.gameofsplits.fun/pass). This is the Toll Gate on the map. Approve tWIF and lock 5,000. The hold is 24 hours. Unlock returns 5,000 tWIF to the same wallet. A lock does not need a live Chapter, so this transaction still works after Chapter 0.
-4. Open [Last Arrow](https://testnet.gameofsplits.fun/last-arrow) and [Sheriff's Seat](https://testnet.gameofsplits.fun/sheriffs-seat). Read the price, the clock and the purse. A new shot or take reverts `NoActiveFair` until the Safe sets another Chapter. Chapter 0 ran from 30 Oct 2026 14:00 UTC to 30 Oct 2026 20:00 UTC. `salesPaused()` was false on 31 Oct 2026 UTC. The revert on a new shot is `NoActiveFair`.
-5. Open [Alms](https://testnet.gameofsplits.fun/alms), [Bonfire](https://testnet.gameofsplits.fun/bonfire) and [Locksley Vault](https://testnet.gameofsplits.fun/vault). These pages read the Greenwood ledgers. The vault launcher is the zero address, so the page cannot pull funds.
-6. Open [Robin Among Thieves](https://testnet.gameofsplits.fun/robin). `entriesPaused()` is true on the deployed contract, so `enter` reverts `EntriesArePaused`. You can still read the licence amount, which is 1,000 tWIF, and the rake sink, which is RakeBuyer.
-7. Skip the Trading Post as a proof. https://testnet.gameofsplits.fun/trading-post is a preview. FeeSplitter is not in the 46630 file, so that page does not move these contracts.
+1. Open https://gameofsplits.fun and connect a wallet on chain 4663. The site asks to switch network if the wallet is elsewhere. You need a little ETH for gas, USDG to play and 5,000 $WIF for a Pass. The [Trading Post](https://gameofsplits.fun/trading-post) is the in-site way to get USDG and $WIF.
+2. Open the [Toll Gate](https://gameofsplits.fun/pass). Approve $WIF and lock 5,000 in FairPass. The hold is 24 hours. Unlock returns the 5,000 $WIF to the same wallet.
+3. Open [Last Arrow](https://gameofsplits.fun/last-arrow) (the Archery Glade) and the [Sheriff's Seat](https://gameofsplits.fun/sheriffs-seat). Read the price, the clock and the purse, then shoot or take during a chapter. The Seat day is 86,400 seconds and ends at 00:00 UTC.
+4. Open the [Satchel](https://gameofsplits.fun/satchel). It shows winnings held on FairCore and the Stash balance. `claim` works even while sales are paused.
+5. Open the [Friar's Chapel](https://gameofsplits.fun/alms) (Alms vote) and [The Ledger](https://gameofsplits.fun/analytics), which reads the Greenwood ledgers from FairLens and the event history.
+6. Open the [Outlaw Camp](https://gameofsplits.fun/robin) (Robin Among Thieves). Read `entriesPaused()` on the contract first: the Safe keeps entries paused until the camp opens, and `enter` reverts `EntriesArePaused` while it is set. The licence is 1,000 $WIF and the rake goes to RakeBuyer.
+7. Docs: https://docs.gameofsplits.fun, with every address on https://docs.gameofsplits.fun/contracts.
 
-The Sheriff's Seat day on this deployment is 7,200 seconds, and `day0` is 30 Oct 2026 00:00 UTC. Mainnet days end at 00:00 UTC and last 86,400 seconds.
+## Mainnet contracts
+
+Read on chain 4663 (block 110,246,188, 10 Nov 2026). Every address below has code, and every `owner()` is the Safe with `pendingOwner()` zero.
+
+| Contract | Address | Source | Notes |
+| --- | --- | --- | --- |
+| GameConfig | [0xfCEE…5191](https://robinhoodchain.blockscout.com/address/0xfCEE3b97e94516668300c649212822dbe4eC5191) | `contracts/src/GameConfig.sol` | `tokens()` is $WIF / 5,000 / $WIF. `delay()` is 7 days |
+| FairCore | [0x4fbf…8458](https://robinhoodchain.blockscout.com/address/0x4fbfdaAE32BC1C8F43Ce8BDBE25445C6B8718458) | `contracts/src/FairCore.sol` | the USDG book. `timelockDelay()` is 48 hours |
+| FairPass | [0xdB75…3709](https://robinhoodchain.blockscout.com/address/0xdB75122e1e53215f77F6C1F3B9D7E51d9D983709) | `contracts/src/FairPass.sol` | 24 hour hold, exact-amount check |
+| FairLens | [0x3838…0970](https://robinhoodchain.blockscout.com/address/0x3838b0C4b00919d3fEFB0F00e80468bF33960970) | `contracts/src/FairLens.sol` | read-only views, holds nothing |
+| LastArrow | [0x3D50…8516](https://robinhoodchain.blockscout.com/address/0x3D50EdFa6E22d901ec567cE27842F4DBE2068516) | `contracts/src/LastArrow.sol` | booth, no owner |
+| SheriffsSeat | [0x61bC…5c0F](https://robinhoodchain.blockscout.com/address/0x61bC2Af907912c4279F610D82681320F96e25c0F) | `contracts/src/SheriffsSeat.sol` | booth, no owner, `dayLength()` 86,400 |
+| AlmsVote | [0xaA3C…bA71](https://robinhoodchain.blockscout.com/address/0xaA3Ce43Bf69E1e76beBE56d014Fe659175EAbA71) | `contracts/src/AlmsVote.sol` | |
+| LocksleyVault | [0x794A…Dea2](https://robinhoodchain.blockscout.com/address/0x794A1D6dFD20b4da712B35AffDf7938861a2Dea2) | `contracts/src/LocksleyVault.sol` | `launcher()` is the zero address |
+| RobinAmongThieves | [0x586d…7c2F](https://robinhoodchain.blockscout.com/address/0x586d69120F27e04933684fe38f903ae86Bde7c2F) | `contracts/src/RobinAmongThieves.sol` | `rakeSink()` RakeBuyer, `houseSink()` LocksleyVault |
+| RakeBuyer | [0xdd51…af3A](https://robinhoodchain.blockscout.com/address/0xdd5127199C68B5bE28671ade6af1D66BD9f7af3A) | `contracts/src/RakeBuyer.sol` | `vault()` LocksleyVault, `forwardTo()` unset |
+| Stash | [0x46d5…b3BD](https://robinhoodchain.blockscout.com/address/0x46d56Ecf2fF7C3c32be968412584B6177461b3BD) | `contracts/src/Stash.sol` | no owner. Cap 50,000 USDG |
+| FeeSplitter | [0x142c…F5ef](https://robinhoodchain.blockscout.com/address/0x142c0A0a19E85165Aadb8310E7a2A6081122F5ef) | `contracts/src/FeeSplitter.sol` | swap fee split 50% Vault, 40% $WIF burn, 10% ops. 7 day timelock |
+| Buy route A / B | [0xc6b5…3615](https://robinhoodchain.blockscout.com/address/0xc6b57FFa1Ad054913a8D202755135719d89D3615) / [0x883b…9352](https://robinhoodchain.blockscout.com/address/0x883bb030BD736F86f5008000A13bf23c78ec9352) | `contracts/src/routes/` | FairCore `routes(0)` and `routes(1)` |
+| Rake routes A / B | [0x0F98…CaC1E](https://robinhoodchain.blockscout.com/address/0x0F98D370A01696114956c3CeB3f876f7426CaC1E) / [0x1c25…CD08](https://robinhoodchain.blockscout.com/address/0x1c258f02c906Ca03E082215Ce479EbbF4a38CD08) | `contracts/src/routes/` | RakeBuyer routes |
+| Owner Safe | [0x7c0f…A36a](https://robinhoodchain.blockscout.com/address/0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a) | Safe v1.5.0 | 2 of 3, no modules, no guard |
 
 ## Contracts to read first
 
-Read in this order. The explorer link is the deployed testnet contract. The file is the source in this repo.
-
-1. [GameConfig](https://explorer.testnet.chain.robinhood.com/address/0x6d0e02dEb629a3DB9f8e8fFf1A3fcA18A0263B15) in `contracts/src/GameConfig.sol`. Call `tokens()` and `split()`. On this deployment both tokens are tWIF, the pass is 5,000 tWIF, and the split is the launch row in the README.
-2. [FairCore](https://explorer.testnet.chain.robinhood.com/address/0xeEC601586e54727b248423692D0747d7173aD7A7) in `contracts/src/FairCore.sol`. Read `collect`, `award`, `claim`, `burnBuyToken`, `buyForVault` and `_swap`. This is the USDG book.
-3. [FairLens](https://explorer.testnet.chain.robinhood.com/address/0x030dA2A56C49D4d2183ED52088B27E6557c90F66) in `contracts/src/FairLens.sol`. Call `configNow()`, `greenwood()` and `arrowNow()`. If a lens number disagrees with FairCore, FairCore is the source of truth. The lens holds nothing.
-4. [LastArrow](https://explorer.testnet.chain.robinhood.com/address/0x42bB9623B81B85B36ec580c18869eD98Ec678B02) and [SheriffsSeat](https://explorer.testnet.chain.robinhood.com/address/0xA4bC35DD176be475141d871Afde0E91a7f6b9369). They keep score and send USDG straight to FairCore. Their USDG balance should stay 0.
-5. [FairPass](https://explorer.testnet.chain.robinhood.com/address/0x97AC01c46714ED68f19B7839E3125B9e102781E4) in `contracts/src/FairPass.sol`. The 24 hour hold and the exact-amount check are here.
-6. [RobinAmongThieves](https://explorer.testnet.chain.robinhood.com/address/0xfB1E167CDA749f7acd8E6FDC8a8Db7FF4a9c36e9) and [RakeBuyer](https://explorer.testnet.chain.robinhood.com/address/0x6016C88358aC81B3FdcD77d5C583902Bb41689ce). Rake leaves the camp through `flushRake` and arrives at RakeBuyer.
-7. [LocksleyVault](https://explorer.testnet.chain.robinhood.com/address/0x9AAE8E5C86a0634212D23a886E19401cF25Fd6b3). `launcher()` is the zero address.
-8. Routes. This deployment uses `contracts/src/testnet/TestTokens.sol` (`TestRoute` mints at `RATE`). Mainnet uses `contracts/src/routes/BuyRouteV4.sol` and `contracts/src/routes/BuyRouteV3V4.sol`.
-9. `contracts/src/FeeSplitter.sol` for the integrator-fee design. It has no address on 46630.
+1. GameConfig. Call `tokens()` and `split()`. The split is 60% to the round's Purse and 40% to the Greenwood.
+2. FairCore. Read `collect`, `award`, `claim`, `burnBuyToken`, `buyForVault` and `_swap`. This is the USDG book, and `accounted()` should never exceed its USDG balance.
+3. FairLens. Call `configNow()`, `greenwood()` and `arrowNow()`. If a lens number disagrees with FairCore, FairCore is the source of truth.
+4. LastArrow and SheriffsSeat. They keep score and send USDG straight to FairCore. Their USDG balance should stay 0. `FairCore.isBooth` is true for both.
+5. FairPass. The 24 hour hold and the exact-amount check are here.
+6. RobinAmongThieves and RakeBuyer. Rake leaves the camp through `flushRake` and arrives at RakeBuyer, which buys $WIF for the Vault.
+7. Stash. One-click play: a session key can shoot and take inside a spend limit, and withdrawals only ever go back to the depositing wallet.
+8. FeeSplitter. The Trading Post integrator fee, split by `pursesBps`/`vaultBps`/`rebateBps`/`burnBps`/`opsBps` = 0/5000/0/4000/1000.
 
 ## How to verify the flywheel onchain
 
-Chapter 0 left one shot and no keeper buy. The booking is still in the ledgers. A log search on 31 Oct 2026 UTC, from deploy block 145373467, found one `Shot` and no `Burned`, `BoughtForVault`, `Received`, `Bought` or `Forwarded` events.
+Each shot emits `Shot(fairId, booth, roundKey, gross, purse, greenwood)` on FairCore, with `purse` 60% and `greenwood` 40% of `gross`. Then look for:
 
-### The shot
+- `Awarded` and `RolledOver` when a round settles. Together they equal the round's purse.
+- `Burned(token, source, route, usdgIn, out, minOut)` on FairCore. `source` 0 is the Bonfire and `source` 1 is the Vault's dead-address ledger. `token` is $WIF and the tokens go to `0x000000000000000000000000000000000000dEaD`.
+- `BoughtForVault(token, route, usdgIn, out, minOut)` on FairCore. The recipient is LocksleyVault, and `heldOf` on the vault (or the `vaultBuyTokenHeld` field of `greenwood()` on FairLens) shows the $WIF.
+- `AlmsCarried` or `AlmsReleased` at the end of a chapter, and `TollWithdrawn` when the Safe withdraws the toll.
+- `RakeFlushed` on Robin Among Thieves, then `Received`, `Bought` and `Forwarded` on RakeBuyer.
 
-[Shot transaction](https://explorer.testnet.chain.robinhood.com/tx/0xca21133864147a79aaddf41f5c232984b08d32f4d75f46507af3294412373eff) on FairCore.
+`greenwood()` on FairLens returns the ledgers plus `solvent`, which is true when FairCore's USDG balance is at least `accounted()`.
 
-`Shot` arguments, in tUSDG base units (6 decimals):
+## Testnet (secondary)
 
-| Field | Value |
-| --- | --- |
-| fairId | 0 |
-| booth | Sheriff's Seat |
-| roundKey | 8 |
-| gross | 1,000,000 (1 tUSDG) |
-| purse | 600,000 |
-| greenwood | 400,000 |
-
-That is the 60 / 40 split. The same transaction emits `Seeded` with amount 0, because the round had no rollover yet.
-
-### Where the purse and the Alms went
-
-[Award transaction](https://explorer.testnet.chain.robinhood.com/tx/0x0f7bc3a68f2e18345034bcd4ec55a973beb63545d592041c9e8a98771b4b1025). `Awarded` pays 450,000 and `RolledOver` books 150,000. 450,000 + 150,000 = 600,000, the whole purse. No `Claimed` log had followed it at the time of the search, and `accounted()` was still the full shot, so that purse had not left FairCore. The 150,000 is `rollover` for the Sheriff's Seat.
-
-[Alms carry](https://explorer.testnet.chain.robinhood.com/tx/0xbc9e11b81757aecfca1ee79c694aa94a3f6d9a899886f0ee8916ec78da14cb00). `AlmsCarried` moves 80,000, which is 8% of the shot. There was no `AlmsReleased` log. A chapter with no votes carries the Alms forward instead of paying the Safe.
-
-### Ledgers still waiting on the keeper
-
-Read these on FairCore. Values below were the balances on 31 Oct 2026 UTC, in tUSDG base units, and they match 7% and 4.5% of the 1 tUSDG shot:
-
-| Call | Value | Meaning |
-| --- | --- | --- |
-| `bonfirePending()` | 70,000 | waiting for `burnBuyToken(Bonfire, ...)` |
-| `tollPending()` | 70,000 | waiting for `withdrawToll` |
-| `vaultBuyPending()` | 45,000 | waiting for `buyForVault` |
-| `vaultBurnPending()` | 45,000 | waiting for `burnBuyToken(Vault, ...)` |
-| `vaultLiqUsdg()` | 45,000 | stays in FairCore until a launcher exists |
-| `vaultFairsBurnUsdg()` | 45,000 | stays in FairCore until a launcher exists |
-| `accounted()` | 1,000,000 | equals the tUSDG balance of FairCore |
-
-`greenwood()` on FairLens returns the same ledgers plus `solvent`, which is true when the tUSDG balance is at least `accounted`.
-
-When the keeper does run, look for:
-
-- `Burned(token, source, route, usdgIn, out, minOut)` on FairCore. `source` 0 is the Bonfire. `source` 1 is the vault dead-address ledger. `token` should be tWIF. On this testnet the route mints tWIF to the dead address. On mainnet the route buys $WIF from the pools and FairCore checks the recipient balance.
-- `BoughtForVault(token, route, usdgIn, out, minOut)` on FairCore. The recipient is LocksleyVault. Then `heldOf` on the vault, or `vaultBuyTokenHeld` on the lens, should show the tWIF.
-- `TollWithdrawn` when the Safe withdraws the toll.
-- `RakeFlushed` on Robin Among Thieves, then `Received`, `Bought` and `Forwarded` on RakeBuyer. `Forwarded` should name LocksleyVault.
-
-The dead address is `0x000000000000000000000000000000000000dEaD`. Its tWIF balance is the sum of `Burned` outputs on this testnet, because `TestRoute` mints to the recipient instead of pulling from a pool.
+The same contracts also run on Robinhood Chain testnet (chain 46630) at https://testnet.gameofsplits.fun, with a faucet for test USDG and test $WIF. Addresses are in [`contracts/deployments/46630.json`](contracts/deployments/46630.json), explorer https://explorer.testnet.chain.robinhood.com. Testnet timelocks are 0 and its routes mint test tokens at a fixed rate, so use mainnet for anything about prices or the timelocks.
 
 ## Where tests and invariants live
 
@@ -99,4 +82,4 @@ The dead address is `0x000000000000000000000000000000000000dEaD`. Its tWIF balan
 | `contracts/test/fork` | Read-only checks against the live Robinhood RPC |
 | `contracts/test/sim/Fair0Sim.fork.t.sol` | Chapter 0 money simulation. Skipped unless the prepared node is running |
 
-Run notes and the 31 Oct 2026 UTC counts are in the README. Fuzz runs and invariant depth are set in `contracts/foundry.toml`.
+Fuzz runs and invariant depth are set in `contracts/foundry.toml`. The review record is [AUDIT.md](AUDIT.md), the static scan triage is [contracts/SLITHER.md](contracts/SLITHER.md), and the admin model is in [SECURITY.md](SECURITY.md).
