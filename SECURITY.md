@@ -18,23 +18,27 @@ Out of scope for a report filed here:
 - the site repository at https://github.com/GameSplits/gos-site
 - Uniswap v3 and v4 pools and hooks, the ERC-8004 identity and reputation registries, donate.gg, and the Safe singleton
 
-Mainnet (chain id 4663) is not deployed. The mainnet Safe pin in the deploy script is still the zero address, so the mainnet broadcast refuses to run.
+The contracts are live on Robinhood Chain mainnet (chain id 4663). Addresses are in [`contracts/deployments/4663.json`](contracts/deployments/4663.json) and the table in [README.md](README.md). The testnet (chain id 46630) set is in `contracts/deployments/46630.json`.
 
 ## How to report
 
-This repository is private. Open a GitHub issue on GameSplits/Game-of-Splits. Title it `Security:` plus one line on the impact. Include the contract, the function, the chain id, what you expected, what happened, and the smallest reproduction that shows it.
+This repository is private. If you have access, open a GitHub issue on GameSplits/Game-of-Splits. Otherwise email support@gameofsplits.fun. Title it `Security:` plus one line on the impact. Include the contract, the function, the chain id, what you expected, what happened, and the smallest reproduction that shows it.
 
 Leave the maintainers time to answer before you describe the same issue on a public site.
 
 ## Safe and timelocks
 
-The testnet owner is the Safe [0xDF3d35A99af7A1A3fdE128b8FDFa0D60aE9A1F00](https://explorer.testnet.chain.robinhood.com/address/0xDF3d35A99af7A1A3fdE128b8FDFa0D60aE9A1F00). `getThreshold()` is 2. `getOwners()` returns three addresses:
+The mainnet owner is the Safe [0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a](https://robinhoodchain.blockscout.com/address/0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a) (Safe v1.5.0). `getThreshold()` is 2 and `getOwners()` returns three addresses. It has no modules and no guard.
 
-- 0xb44F0e5B8DBd27e6bC7EfFd4Bd7FC0DE38C750bA
-- 0x20C1c0145a861C1F65B08cEa34a534B6A139198B
-- 0xB12F5C8c95e1F81D28657f1b4fb8E8d1B90a7F82
+Read on chain 4663 at block 110,246,188 (10 Nov 2026):
 
-The same Safe is `almsSafe()` and `tollRecipient()` on the deployed FairCore. The deployer `0x86544901BB78438E8dF580903AA91ea1c6A00378` is not an owner. Deploy used `handOver` so the deployer EOA lost ownership in the deploy broadcast. Later ownership moves use Ownable2Step: the new owner must accept. `renounceOwnership` reverts on these contracts.
+- `owner()` is the Safe and `pendingOwner()` is the zero address on GameConfig, FairCore, FairPass, AlmsVote, LocksleyVault, RobinAmongThieves, RakeBuyer and FeeSplitter.
+- LastArrow, SheriffsSeat, FairLens and Stash have no owner. Stash's cap raiser and fee recipient are the Safe.
+- The Safe is `almsSafe()` and `tollRecipient()` on FairCore, and the purses, rebate, burn and ops legs of FeeSplitter. The FeeSplitter vault leg is LocksleyVault.
+- The deployer `0xb92Ee980F72b25Cf892321801aaE3C663109cdF0` holds no role and is not a Safe owner. The deploy script uses `handOver`, so the deployer loses ownership in the deploy broadcast, and `SafeAcceptVerify` checks that it has no power left. The reads above confirm that on chain. Later ownership moves use Ownable2Step: the new owner must accept. `renounceOwnership` reverts on these contracts.
+- The mainnet timelocks are live: GameConfig `delay()` 7 days, FairCore, RakeBuyer and RobinAmongThieves `timelockDelay()` 48 hours, RobinAmongThieves `bondDelay()` 7 days, FeeSplitter `TIMELOCK` 7 days.
+
+Testnet (chain 46630) contracts have their own owner and keeper and are test-only. Read `owner()` and `keeper()` there rather than relying on this file.
 
 The Safe can pause sales, revoke the keeper immediately, and queue the changes in the table. It cannot, through an owner function, take a purse, a claimable balance, locked Pass tokens, or an Alms balance that players have already been credited. Players can `claim` while sales are paused. A Pass can `unlock` after its own 24 hours while sales are paused.
 
@@ -46,14 +50,24 @@ The Safe can pause sales, revoke the keeper immediately, and queue the changes i
 | RakeBuyer keeper, routes, ratchet, forward recipient | 48 hours | `timelockDelay()` is 0 |
 | Robin Among Thieves keeper, rake sink, licence amount, draw | 48 hours | `timelockDelay()` is 0 |
 | Robin Among Thieves bonds | 7 days, and bonds start disabled | `bondDelay()` is 0 and `bondsEnabled()` is false |
-| FeeSplitter recipients or split | 7 days | live at mainnet launch (BLK-5), Safe owned from the constructor |
+| FeeSplitter recipients or split | 7 days | not deployed on 46630 |
 | LocksleyVault launcher | 7 days, then one attach | `launcher()` is the zero address. The 7 day wait is a constant on every chain |
 | Pass unlock | 24 hours after that wallet locked | same |
 | Outlaw licence return | 24 hours after the licence | same |
 
 On testnet the owner waits above are 0, except the vault launcher. A queued GameConfig update can be executed at once, and only while `activeFair()` is false. Mainnet constructors revert if FairCore, RakeBuyer or RobinAmongThieves are deployed with a timelock under 48 hours, or if GameConfig is deployed with a delay under 7 days, or if the bond delay is under 7 days.
 
-The keeper address on this deployment is `0xf79640C55805A3dc50F4d07AaA8Dfb52bbAa35E1`. It can settle ended rounds and call the buys inside the caps in the README. It cannot move a purse, a pass, or the Alms.
+The mainnet keeper is `0x4696ebA115691d7AA5A3bb810F172cdb7DCF21E5` on FairCore, RakeBuyer and RobinAmongThieves. It can settle ended rounds and call the buys inside the caps in the README. It cannot move a purse, a pass, or the Alms.
+
+## Reviews and scans
+
+No audit firm has issued a report, so treat the contracts as unaudited. What was done, all recorded in [AUDIT.md](AUDIT.md) and [contracts/SLITHER.md](contracts/SLITHER.md):
+
+- Internal review passes, with accepted findings fixed and regression tests in `contracts/test/audit`.
+- Unit, fuzz and invariant suites (USDG solvency, config, Robin Among Thieves conservation), plus read-only fork tests against the live mainnet RPC.
+- Slither and Aderyn on the deployed contract source, with every High and Medium row triaged as known, by design or a false positive.
+- A mainnet fork rehearsal of the deploy and the Safe handover before the real broadcast.
+- Secret scans of the full git history and dependency audits of the keeper, watcher and relayer packages.
 
 ## Known limitations
 
@@ -61,7 +75,7 @@ Fee-on-transfer buy tokens are unsupported. `FairCore._swap` and `RakeBuyer.buy`
 
 Fee-on-transfer USDG and fee-on-transfer play tokens fail closed. `FairCore.collect`, `FairPass.lock` and Robin Among Thieves deposits revert `TransferMismatch` unless the contract's balance rises by the exact amount.
 
-FeeSplitter assumes a standard token. A fee taken inside `transfer` can leave a leg in `owed` instead of paying it. It goes live at the mainnet launch, deployed by `script/DeployFeeSplitter.s.sol` right after the main deploy and checked by SafeAcceptVerify.
+FeeSplitter assumes a standard token. A fee taken inside `transfer` can leave a leg in `owed` instead of paying it. On mainnet it was deployed by `script/DeployFeeSplitter.s.sol` right after the main deploy and checked by SafeAcceptVerify.
 
 A booth the Safe adds after setup can pull USDG from any wallet that approved FairCore, up to the booth allowance that wallet set for it. The launch booths are Last Arrow and the Sheriff's Seat. Those two do not use the extra allowance. Their `collect` call passes the booth's own `msg.sender` as the payer.
 
@@ -73,7 +87,7 @@ A round that is still open when a chapter ends attributes the shot to the chapte
 
 Testnet routes mint tWIF or tTKB at a fixed rate. They are not a price check against a pool. Mainnet routes are the v3 and v4 contracts, and they are not what 46630 runs.
 
-Robin Among Thieves entries are paused on this deployment. That is a switch the Safe can clear. It is not a timelock.
+Robin Among Thieves entries start paused (`entriesPaused()`). That is a switch the Safe can clear when the camp opens. It is not a timelock.
 
 ## Swap payee residual
 
