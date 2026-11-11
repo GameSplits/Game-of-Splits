@@ -28,14 +28,14 @@ Leave the maintainers time to answer before you describe the same issue on a pub
 
 ## Safe and timelocks
 
-The mainnet owner is the Safe [0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a](https://robinhoodchain.blockscout.com/address/0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a) (Safe v1.5.0). `getThreshold()` is 2 and `getOwners()` returns three addresses. It has no modules and no guard.
+The mainnet owner is the Safe [0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a](https://robinhoodchain.blockscout.com/address/0x7c0fc9869f2D41D88CCA675A9A270214d59DA36a) (Safe v1.5.0). It has no modules and no guard.
 
 Read on chain 4663 at block 110,246,188 (10 Nov 2026):
 
 - `owner()` is the Safe and `pendingOwner()` is the zero address on GameConfig, FairCore, FairPass, AlmsVote, LocksleyVault, RobinAmongThieves, RakeBuyer and FeeSplitter.
 - LastArrow, SheriffsSeat, FairLens and Stash have no owner. Stash's cap raiser and fee recipient are the Safe.
 - The Safe is `almsSafe()` and `tollRecipient()` on FairCore, and the purses, rebate, burn and ops legs of FeeSplitter. The FeeSplitter vault leg is LocksleyVault.
-- The deployer `0xb92Ee980F72b25Cf892321801aaE3C663109cdF0` holds no role and is not a Safe owner. The deploy script uses `handOver`, so the deployer loses ownership in the deploy broadcast, and `SafeAcceptVerify` checks that it has no power left. The reads above confirm that on chain. Later ownership moves use Ownable2Step: the new owner must accept. `renounceOwnership` reverts on these contracts.
+- The deployer holds no role and is not a Safe owner. The deploy script uses `handOver`, so the deployer loses ownership in the deploy broadcast, and `SafeAcceptVerify` checks that it has no power left. The reads above confirm that on chain. Later ownership moves use Ownable2Step: the new owner must accept. `renounceOwnership` reverts on these contracts.
 - The mainnet timelocks are live: GameConfig `delay()` 7 days, FairCore, RakeBuyer and RobinAmongThieves `timelockDelay()` 48 hours, RobinAmongThieves `bondDelay()` 7 days, FeeSplitter `TIMELOCK` 7 days.
 
 Testnet (chain 46630) contracts have their own owner and keeper and are test-only. Read `owner()` and `keeper()` there rather than relying on this file.
@@ -57,7 +57,7 @@ The Safe can pause sales, revoke the keeper immediately, and queue the changes i
 
 On testnet the owner waits above are 0, except the vault launcher. A queued GameConfig update can be executed at once, and only while `activeFair()` is false. Mainnet constructors revert if FairCore, RakeBuyer or RobinAmongThieves are deployed with a timelock under 48 hours, or if GameConfig is deployed with a delay under 7 days, or if the bond delay is under 7 days.
 
-The mainnet keeper is `0x4696ebA115691d7AA5A3bb810F172cdb7DCF21E5` on FairCore, RakeBuyer and RobinAmongThieves. It can settle ended rounds and call the buys inside the caps in the README. It cannot move a purse, a pass, or the Alms.
+The mainnet keeper on FairCore, RakeBuyer and RobinAmongThieves can settle ended rounds and call the buys inside the caps in the README. It cannot move a purse, a pass, or the Alms.
 
 ## Reviews and scans
 
