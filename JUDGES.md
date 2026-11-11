@@ -9,7 +9,9 @@ Chain: **Robinhood Chain mainnet, chain id 4663.** Gas is ETH. RPC `https://rpc.
 
 The play token and the buy token are $WIF (`0x5173b8eA6923c2d40267890D45C46a3480954773`, 18 decimals). Shots are paid in USDG (`0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`, 6 decimals). Times below are UTC.
 
-Chapter 0 on mainnet runs from 12 Nov 2026 00:00 UTC to 14 Nov 2026 00:00 UTC (`fairs(0)` on FairCore). Outside a chapter a new shot or take reverts `NoActiveFair`. Passes, claims and reads work at any time.
+Chapter 1 on mainnet runs from 12 Nov 2026 00:00 UTC to 14 Nov 2026 00:00 UTC (`fairs(0)` on FairCore). Outside a chapter a new shot or take reverts `NoActiveFair`. Passes, claims and reads work at any time.
+
+Chapters are numbered from 1 for players; onchain, Chapter 1 is fairs(0) in FairCore.
 
 ## What to click
 
@@ -80,6 +82,6 @@ The same contracts also run on Robinhood Chain testnet (chain 46630) at https://
 | `contracts/test/invariant/RatInvariants.t.sol` | USDG conservation, licence locks, the contract never owning an ERC-8004 identity |
 | `contracts/test/audit` | Regression tests for the internal and external reviews. See [AUDIT.md](AUDIT.md) |
 | `contracts/test/fork` | Read-only checks against the live Robinhood RPC |
-| `contracts/test/sim/Fair0Sim.fork.t.sol` | Chapter 0 money simulation. Skipped unless the prepared node is running |
+| `contracts/test/sim/Fair0Sim.fork.t.sol` | Chapter 1 money simulation. Skipped unless the prepared node is running |
 
 Fuzz runs and invariant depth are set in `contracts/foundry.toml`. The review record is [AUDIT.md](AUDIT.md), the static scan triage is [contracts/SLITHER.md](contracts/SLITHER.md), and the admin model is in [SECURITY.md](SECURITY.md).

@@ -30,7 +30,7 @@ This repo is the contracts, keeper, and watcher source. The Next.js site lives i
 contracts/      Foundry project (solc 0.8.38, via-IR, OZ 5.4.0, forge-std 1.11.0 as git submodules)
   src/          GameConfig, FairCore, FairPass, LastArrow, SheriffsSeat, AlmsVote, LocksleyVault, FairLens, RobinAmongThieves,
                 RakeBuyer, Stash, FeeSplitter, routes/, testnet/
-  test/         unit, invariant, audit PoCs, fork (live Robinhood RPC), sim (Chapter 0 on a local fork)
+  test/         unit, invariant, audit PoCs, fork (live Robinhood RPC), sim (Chapter 1 on a local fork)
   script/       Deploy.s.sol (Safe checks + pinned Safe address), SafeAccept.s.sol, Mainnet.s.sol, e2e/*.sh
 keeper/         hourly keeper (GitHub Actions in its own repo; DRY_RUN unless DRY_RUN=0), viem only
 watcher/        Vercel cron watcher + send log + dead-man switch (no key, no GitHub credential), viem only
@@ -48,18 +48,16 @@ cd ../keeper && npm ci --ignore-scripts && npm test
 cd ../watcher && npm ci --ignore-scripts && npm test
 cd .. && bash e2e/keeper_watcher.sh           # Foundry 1.5.x (1.8.x emulates ArbSys on Robinhood forks)
 bash contracts/script/e2e/accept_flow.sh      # deploy + Safe accept rehearsal
-bash contracts/script/e2e/fair0_sim.sh        # Chapter 0 money simulation (Foundry 1.5.x)
+bash contracts/script/e2e/fair0_sim.sh        # Chapter 1 money simulation (Foundry 1.5.x)
 ```
 
 Every package has a `.env.example` listing its settings. No secrets in the repo: keys go through a masked secret entry.
 Mainnet and testnet deploys both use a Foundry encrypted keystore. Mainnet account `gos-mainnet`, testnet account
 `gos-testnet`: `cast wallet import <account> --interactive`, then `forge script ... --account <account> --sender <addr>`.
-The password is typed at the prompt only, never written to a file or the shell history. Each deployer is a fresh
-single-use EOA that holds only gas ETH. It is never a Safe signer and it never holds USDG or $wif. After ownership
+The password is typed at the prompt only, never written to a file or the shell history. After ownership
 moves to the Safe in the same broadcast, `SafeAcceptVerify` checks the deployer has no power left, that `OWNER_SAFE`
 is the Safe pinned in the deploy script, and that FairCore logged exactly two booths and the deployed routes (mainnet
-and testnet, the same checks, each pinned to its Safe so any other Safe is refused). Then sweep leftover gas to the
-Safe and delete the keystore. See `docs/OPERATIONS.md`.
+and testnet, the same checks, each pinned to its Safe so any other Safe is refused). See `docs/OPERATIONS.md`.
 
 ## Mainnet deployment
 
