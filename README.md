@@ -54,12 +54,10 @@ bash contracts/script/e2e/fair0_sim.sh        # Chapter 0 money simulation (Foun
 Every package has a `.env.example` listing its settings. No secrets in the repo: keys go through a masked secret entry.
 Mainnet and testnet deploys both use a Foundry encrypted keystore. Mainnet account `gos-mainnet`, testnet account
 `gos-testnet`: `cast wallet import <account> --interactive`, then `forge script ... --account <account> --sender <addr>`.
-The password is typed at the prompt only, never written to a file or the shell history. Each deployer is a fresh
-single-use EOA that holds only gas ETH. It is never a Safe signer and it never holds USDG or $wif. After ownership
+The password is typed at the prompt only, never written to a file or the shell history. After ownership
 moves to the Safe in the same broadcast, `SafeAcceptVerify` checks the deployer has no power left, that `OWNER_SAFE`
 is the Safe pinned in the deploy script, and that FairCore logged exactly two booths and the deployed routes (mainnet
-and testnet, the same checks, each pinned to its Safe so any other Safe is refused). Then sweep leftover gas to the
-Safe and delete the keystore. See `docs/OPERATIONS.md`.
+and testnet, the same checks, each pinned to its Safe so any other Safe is refused). See `docs/OPERATIONS.md`.
 
 ## Mainnet deployment
 
