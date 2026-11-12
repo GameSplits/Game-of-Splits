@@ -85,3 +85,7 @@ The same contracts also run on Robinhood Chain testnet (chain 46630) at https://
 | `contracts/test/sim/Fair0Sim.fork.t.sol` | Chapter 1 money simulation. Skipped unless the prepared node is running |
 
 Fuzz runs and invariant depth are set in `contracts/foundry.toml`. The review record is [AUDIT.md](AUDIT.md), the static scan triage is [contracts/SLITHER.md](contracts/SLITHER.md), and the admin model is in [SECURITY.md](SECURITY.md).
+
+## License
+
+Contracts are licensed under BUSL-1.1 (converts to MIT on 2030-11-12); see LICENSE.
