@@ -117,3 +117,7 @@ forge script script/DeployStash.s.sol --rpc-url robinhood_testnet
 Set `STASH_FEE_WALLET` and `STASH_CAP_RAISER` in the environment first. Add `--broadcast` and `--private-key` only for a real testnet deploy. The script reverts on every other chain. Do not write the deployer key into the repo.
 
 The relayer in `relayer/` submits signed Shoot, Take, Withdraw, AuthorizeKey, SetLimit, and RevokeKey payloads. It checks the chain and the Stash address, checks the signature, simulates with `eth_call`, and sends with a priority fee. A failed send is tried once more. See `relayer/README.md`.
+
+## License
+
+Contracts are licensed under BUSL-1.1 (converts to MIT on 2030-11-12); see LICENSE.
