@@ -1,8 +1,25 @@
 # Game of Splits
 
-A $wif / USDG game chapter live on Robinhood Chain mainnet, chain id 4663 (World is Flat hackathon). Players lock 5,000 $wif in a **Pass**
-(24h minimum hold) and pay USDG to play booths: **Last Arrow** (a rising-price, last-shot-wins clock) and the
-**Sheriff's Seat** (a daily throne). The same pass is required at the **Outlaw Camp** (Robin Among Thieves): the
+## Project links
+
+- Live site: https://gameofsplits.fun
+- Docs: https://docs.gameofsplits.fun (addresses: https://docs.gameofsplits.fun/contracts)
+- Frontend repo: https://github.com/GameSplits/gos-site (private; hackathon judges are invited with read access)
+- Contracts on Robinhood Chain: [FairCore](https://robinhoodchain.blockscout.com/address/0x4fbfdaAE32BC1C8F43Ce8BDBE25445C6B8718458). Address table: [Mainnet deployment](#mainnet-deployment) and [`contracts/deployments/4663.json`](contracts/deployments/4663.json).
+- Explorer: https://robinhoodchain.blockscout.com
+- Testnet (chain 46630): https://testnet.gameofsplits.fun
+
+## Judges start here
+
+Game of Splits is a set of outlaw games with real rewards on Robinhood Chain. Players hold and lock 5,000 $WIF in a Pass, pay in USDG to play, and every play helps buy and burn $WIF.
+
+Start with the [JUDGES.md](JUDGES.md) tour, then the contracts in [`contracts/src`](contracts/src), the tests in [`contracts/test`](contracts/test), the write-up in [`audits/`](audits/), and the [mainnet address table](#mainnet-deployment). The frontend lives in the private repository [GameSplits/gos-site](https://github.com/GameSplits/gos-site). Hackathon judges are invited with read-only access.
+
+## Overview
+
+A $wif / USDG game chapter is live on Robinhood Chain mainnet, chain id 4663 (World is Flat hackathon). Players lock 5,000 $wif in a **Pass**
+(24h minimum hold) and pay USDG to play games: **Last Arrow** (a rising-price, last-shot-wins clock) and the
+**Sheriff's Seat** (hold the seat; top 3 by time held split the Purse each day). The same pass is required at the **Outlaw Camp** (Robin Among Thieves): the
 controller must hold one to register an outlaw and to enter a round. The camp's own licence (1,000 play token,
 returned on retire after 24 hours) stays as well, so camp entry is a pass plus a licence. An operator or the
 ERC-8004 agent wallet may send the transaction; the pass checked is the controller's. Retiring and withdrawing
@@ -12,17 +29,6 @@ players vote on, paid by the Safe), the Bonfire ($wif bought and burned hourly b
 
 The play token, the pass amount, the buy token and the shot split live in **GameConfig**, a safe-owned config with a
 7-day timelock. The numbers above are the launch values. The site reads the current ones from `FairLens.configNow()`.
-
-## Links
-
-- Site (mainnet, chain 4663): https://gameofsplits.fun
-- Docs: https://docs.gameofsplits.fun (addresses at https://docs.gameofsplits.fun/contracts)
-- Explorer: https://robinhoodchain.blockscout.com
-- Testnet (chain 46630): https://testnet.gameofsplits.fun
-- Frontend (private): https://github.com/GameSplits/gos-site
-- Judge tour: [JUDGES.md](JUDGES.md)
-
-This repo is the contracts, keeper, and watcher source. The Next.js site lives in [GameSplits/gos-site](https://github.com/GameSplits/gos-site); its README covers the site. WIF hackathon judges are invited to those two private repos only.
 
 ## Layout
 
@@ -56,7 +62,7 @@ Mainnet and testnet deploys both use a Foundry encrypted keystore. Mainnet accou
 `gos-testnet`: `cast wallet import <account> --interactive`, then `forge script ... --account <account> --sender <addr>`.
 The password is typed at the prompt only, never written to a file or the shell history. After ownership
 moves to the Safe in the same broadcast, `SafeAcceptVerify` checks the deployer has no power left, that `OWNER_SAFE`
-is the Safe pinned in the deploy script, and that FairCore logged exactly two booths and the deployed routes (mainnet
+is the Safe pinned in the deploy script, and that FairCore logged exactly two games and the deployed routes (mainnet
 and testnet, the same checks, each pinned to its Safe so any other Safe is refused). See `docs/OPERATIONS.md`.
 
 ## Mainnet deployment

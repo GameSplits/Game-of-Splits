@@ -17,7 +17,7 @@ Filters for every run: `lib/`, `test/`, `script/` and `src/testnet/` are exclude
 
 | Detector | Location | Decision |
 |---|---|---|
-| arbitrary-send-erc20 | `FairCore.collect` | By design. Only booths can call it, and the launch booths pass their own `msg.sender` as the payer. A booth added later is limited by a per-payer allowance |
+| arbitrary-send-erc20 | `FairCore.collect` | By design. Only registered games can call it, and the launch games pass their own `msg.sender` as the payer. A game added later is limited by a per-payer allowance |
 | arbitrary-send-eth | `FeeSplitter._pay` | False positive. It pays only a recipient's own escrowed balance, or a rescue that the owner timelocked |
 | weak-prng | `LastArrow.shoot` (`shots % RING`) | False positive. This is a ring index, not randomness |
 | reentrancy-balance (×4) | `FairCore._swap`, `RakeBuyer.buy`, `Stash._play` (×2) | Intended. The functions are `nonReentrant`, and the balance change is checked against the expected amount. The `FairCore._swap` case was a real Low in an earlier version and was fixed in [`ed72b0a`](https://github.com/GameSplits/Game-of-Splits/commit/ed72b0a) (see findings.md, SWAP-1) |
