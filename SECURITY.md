@@ -22,9 +22,9 @@ The contracts are live on Robinhood Chain mainnet (chain id 4663). Addresses are
 
 ## How to report
 
-This repository is private. If you have access, open a GitHub issue on GameSplits/Game-of-Splits. Otherwise email support@gameofsplits.fun. Title it `Security:` plus one line on the impact. Include the contract, the function, the chain id, what you expected, what happened, and the smallest reproduction that shows it.
+Report a vulnerability in private. Email [support@gameofsplits.fun](mailto:support@gameofsplits.fun), or open a draft advisory with [GitHub private vulnerability reporting](https://github.com/GameSplits/Game-of-Splits/security/advisories/new). That email address is the contact in [security.txt](https://gameofsplits.fun/.well-known/security.txt) and on the [docs security page](https://docs.gameofsplits.fun/security). Title the report `Security:` plus one line on the impact. Include the contract, the function, the chain id, what you expected, what happened, and the smallest reproduction that shows it.
 
-Leave the maintainers time to answer before you describe the same issue on a public site.
+Do not open a public issue for an unfixed vulnerability. Leave the maintainers time to answer before you describe the same issue in public.
 
 ## Safe and timelocks
 
@@ -45,7 +45,7 @@ The Safe can pause sales, revoke the keeper immediately, and queue the changes i
 | Change | Mainnet wait | Testnet 46630, read 31 Oct 2026 UTC |
 | --- | --- | --- |
 | GameConfig tokens or split | 7 days, and only while no chapter is active | `delay()` is 0 |
-| FairCore routes, keeper, booths, toll recipient, Alms Safe, ratchet reset | 48 hours | `timelockDelay()` is 0 |
+| FairCore routes, keeper, games, toll recipient, Alms Safe, ratchet reset | 48 hours | `timelockDelay()` is 0 |
 | Revoke the FairCore, RakeBuyer or Robin Among Thieves keeper | immediate | immediate |
 | RakeBuyer keeper, routes, ratchet, forward recipient | 48 hours | `timelockDelay()` is 0 |
 | Robin Among Thieves keeper, rake sink, licence amount, draw | 48 hours | `timelockDelay()` is 0 |
@@ -77,7 +77,7 @@ Fee-on-transfer USDG and fee-on-transfer play tokens fail closed. `FairCore.coll
 
 FeeSplitter assumes a standard token. A fee taken inside `transfer` can leave a leg in `owed` instead of paying it. On mainnet it was deployed by `script/DeployFeeSplitter.s.sol` right after the main deploy and checked by SafeAcceptVerify.
 
-A booth the Safe adds after setup can pull USDG from any wallet that approved FairCore, up to the booth allowance that wallet set for it. The launch booths are Last Arrow and the Sheriff's Seat. Those two do not use the extra allowance. Their `collect` call passes the booth's own `msg.sender` as the payer.
+A game the Safe adds after setup can pull USDG from any wallet that approved FairCore, up to the allowance that wallet set for it with `approveBooth`. The launch games are Last Arrow and the Sheriff's Seat. Those two do not use the extra allowance. Their `collect` call passes their own `msg.sender` as the payer.
 
 A keeper key can still buy, inside the caps: 250 USDG per FairCore ledger per call, 50 minutes between calls on that ledger, 3,000 USDG per ledger per UTC day, and only at or above the price floor. RakeBuyer is 50 USDG per call, 50 minutes between calls, and 500 USDG per UTC day. The Safe can set the keeper to the zero address in the same transaction it decides to.
 

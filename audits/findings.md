@@ -33,7 +33,7 @@ No Critical or High finding that could steal funds was found.
 | S-1 | Stash | Owner and key orders share one nonce, so a compromised session key could invalidate a relayed revoke | Acknowledged | It needs the key, the loss is capped by the session limit, and a direct `revokeKey()` always works |
 | S-2 | Stash | A key holder can front-run a limit cut | Acknowledged | It needs the key, and the owner can revoke |
 | S-3 | Stash | A relayed Seat take has no expected-day field | Acknowledged | The price stays at or below the signed `maxPrice`, and the signed deadline bounds the delay |
-| S-4 | Stash | A booth re-added after setup would need a new approval from Stash | Acknowledged | An operations note. No booth change is planned |
+| S-4 | Stash | A game re-added after setup would need a new approval from Stash | Acknowledged | An operations note. No game change is planned |
 | S-5 | Stash | The shot fee is not part of the signed key authorisation | Acknowledged | Only the Safe can change the fee, and it is capped by `MAX_SHOT_FEE` |
 | S-6 | Stash | One large depositor can fill the deposit cap | Acknowledged | The cap raiser is the Safe (confirmed onchain) and can raise the cap |
 | C-5 | FairCore | Spend and winnings can be credited to different chapters when a round spans a chapter boundary. This only feeds AlmsVote eligibility | Acknowledged | Chapters are scheduled so no round spans the boundary. See SECURITY.md |
@@ -73,7 +73,7 @@ These were found and fixed before the review candidate was cut. They are listed 
 
 | ID | Area | Title | Status | Fix reference |
 |---|---|---|---|---|
-| A1-11 | FairCore | A booth added later could pull USDG from any wallet that approved FairCore (threat model item rated High) | Fixed | Per-booth, per-generation allowance (`_boothAllowance` in FairCore) |
+| A1-11 | FairCore | A game added later could pull USDG from any wallet that approved FairCore (threat model item rated High) | Fixed | Per-game, per-generation allowance (`_boothAllowance` in FairCore) |
 | A1-12 | FairCore, RakeBuyer | A ratchet reset took effect immediately (threat model item rated High) | Fixed | `ResetRatchet` goes through the 48-hour timelock |
 | SW-01 | RobinAmongThieves | Reputation laundering through self-approval (Medium) | Fixed | [`833f4d3`](https://github.com/GameSplits/Game-of-Splits/commit/833f4d3). Tests: `test/unit/RatSelfApproval.t.sol`, `test/fork/Rat8004SelfApproval.fork.t.sol` |
 | A5-01 | AlmsVote | Sybil voting (Medium) | Fixed | `MIN_VOTE_SPEND` gate in AlmsVote |

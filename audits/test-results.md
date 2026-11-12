@@ -21,7 +21,7 @@ Test layout: `test/unit` (39 files), `test/fork` (12), `test/invariant` (4), `te
 ## Invariants
 
 **In the repository** (`contracts/test/invariant`, 4 suites):
-- `Invariants.t.sol`. USDG solvency: FairCore's balance covers `accounted`, and `accounted` equals the sum of the ledgers. Booths hold no USDG. The arrow clock stays bounded. Seat seconds credited in a day never exceed the day. A pause never blocks claim or unlock. The Pass contract holds exactly the locked $wif.
+- `Invariants.t.sol`. USDG solvency: FairCore's balance covers `accounted`, and `accounted` equals the sum of the ledgers. The two games hold no USDG. The arrow clock stays bounded. Seat seconds credited in a day never exceed the day. A pause never blocks claim or unlock. The Pass contract holds exactly the locked $wif.
 - `ConfigInvariants.t.sol`. The split stays inside its caps. Token and split changes go only through the timelock, and only between chapters. Ratchet resets stay bounded.
 - `RatInvariants.t.sol`. Robin Among Thieves USDG equals free balances plus reserved stakes, the Sharing Pot and pending rake. The contract never owns an ERC-8004 identity.
 - `StashInvariants.t.sol`. `balanceOf(Stash) >= totalHeld + feesAccrued`, and fee accounting is exact.

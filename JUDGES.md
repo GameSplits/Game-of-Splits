@@ -1,9 +1,9 @@
 # Five minute tour
 
-Repos for judges (both private):
+Repos for judges:
 
-- Contracts / keeper / watcher: this repo ([GameSplits/Game-of-Splits](https://github.com/GameSplits/Game-of-Splits))
-- Site frontend: [GameSplits/gos-site](https://github.com/GameSplits/gos-site) (see its README)
+- Contracts, keeper and watcher: this repository ([GameSplits/Game-of-Splits](https://github.com/GameSplits/Game-of-Splits))
+- Site frontend: [GameSplits/gos-site](https://github.com/GameSplits/gos-site) (private; hackathon judges are invited with read access)
 
 Chain: **Robinhood Chain mainnet, chain id 4663.** Gas is ETH. RPC `https://rpc.mainnet.chain.robinhood.com`. Explorer: https://robinhoodchain.blockscout.com. Every address is in [`contracts/deployments/4663.json`](contracts/deployments/4663.json) (deploy start block 107503866).
 
@@ -33,8 +33,8 @@ Read on chain 4663 (block 110,246,188, 10 Nov 2026). Every address below has cod
 | FairCore | [0x4fbf…8458](https://robinhoodchain.blockscout.com/address/0x4fbfdaAE32BC1C8F43Ce8BDBE25445C6B8718458) | `contracts/src/FairCore.sol` | the USDG book. `timelockDelay()` is 48 hours |
 | FairPass | [0xdB75…3709](https://robinhoodchain.blockscout.com/address/0xdB75122e1e53215f77F6C1F3B9D7E51d9D983709) | `contracts/src/FairPass.sol` | 24 hour hold, exact-amount check |
 | FairLens | [0x3838…0970](https://robinhoodchain.blockscout.com/address/0x3838b0C4b00919d3fEFB0F00e80468bF33960970) | `contracts/src/FairLens.sol` | read-only views, holds nothing |
-| LastArrow | [0x3D50…8516](https://robinhoodchain.blockscout.com/address/0x3D50EdFa6E22d901ec567cE27842F4DBE2068516) | `contracts/src/LastArrow.sol` | booth, no owner |
-| SheriffsSeat | [0x61bC…5c0F](https://robinhoodchain.blockscout.com/address/0x61bC2Af907912c4279F610D82681320F96e25c0F) | `contracts/src/SheriffsSeat.sol` | booth, no owner, `dayLength()` 86,400 |
+| LastArrow | [0x3D50…8516](https://robinhoodchain.blockscout.com/address/0x3D50EdFa6E22d901ec567cE27842F4DBE2068516) | `contracts/src/LastArrow.sol` | game, no owner |
+| SheriffsSeat | [0x61bC…5c0F](https://robinhoodchain.blockscout.com/address/0x61bC2Af907912c4279F610D82681320F96e25c0F) | `contracts/src/SheriffsSeat.sol` | game, no owner, `dayLength()` 86,400 |
 | AlmsVote | [0xaA3C…bA71](https://robinhoodchain.blockscout.com/address/0xaA3Ce43Bf69E1e76beBE56d014Fe659175EAbA71) | `contracts/src/AlmsVote.sol` | |
 | LocksleyVault | [0x794A…Dea2](https://robinhoodchain.blockscout.com/address/0x794A1D6dFD20b4da712B35AffDf7938861a2Dea2) | `contracts/src/LocksleyVault.sol` | `launcher()` is the zero address |
 | RobinAmongThieves | [0x586d…7c2F](https://robinhoodchain.blockscout.com/address/0x586d69120F27e04933684fe38f903ae86Bde7c2F) | `contracts/src/RobinAmongThieves.sol` | `rakeSink()` RakeBuyer, `houseSink()` LocksleyVault |
@@ -76,8 +76,8 @@ The same contracts also run on Robinhood Chain testnet (chain 46630) at https://
 
 | Path | What it covers |
 | --- | --- |
-| `contracts/test/unit` | FairCore, FairPass, both booths, GameConfig, RakeBuyer, Robin Among Thieves, FeeSplitter, deploy checks |
-| `contracts/test/invariant/Invariants.t.sol` | USDG solvency (`invariant_I1_solventAndAccountedExact`), empty booths, the arrow clock, seat seconds, pass balance, claims and unlocks during a pause |
+| `contracts/test/unit` | FairCore, FairPass, both games, GameConfig, RakeBuyer, Robin Among Thieves, FeeSplitter, deploy checks |
+| `contracts/test/invariant/Invariants.t.sol` | USDG solvency (`invariant_I1_solventAndAccountedExact`), the two games hold no USDG, the arrow clock, seat seconds, pass balance, claims and unlocks during a pause |
 | `contracts/test/invariant/ConfigInvariants.t.sol` | Split caps, token updates only through the timelock, no update during a chapter, anchor reset bounds |
 | `contracts/test/invariant/RatInvariants.t.sol` | USDG conservation, licence locks, the contract never owning an ERC-8004 identity |
 | `contracts/test/audit` | Regression tests for the internal and external reviews. See [AUDIT.md](AUDIT.md) |
