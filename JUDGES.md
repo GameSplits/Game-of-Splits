@@ -9,9 +9,9 @@ Chain: **Robinhood Chain mainnet, chain id 4663.** Gas is ETH. RPC `https://rpc.
 
 The play token and the buy token are $WIF (`0x5173b8eA6923c2d40267890D45C46a3480954773`, 18 decimals). Shots are paid in USDG (`0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`, 6 decimals). Times below are UTC.
 
-Chapter 1 on mainnet runs from 12 Nov 2026 00:00 UTC to 14 Nov 2026 00:00 UTC (`fairs(0)` on FairCore). Outside a chapter a new shot or take reverts `NoActiveFair`. Passes, claims and reads work at any time.
+Chapter 1 on mainnet ran from 12 Nov 2026 00:00 UTC to 14 Nov 2026 00:00 UTC (`fairs(0)` on FairCore). Chapter 2 is live from 14 Nov 2026 00:00 UTC to 21 Nov 2026 00:00 UTC (`fairs(1)`). Outside a chapter a new shot or take reverts `NoActiveFair`. Passes, claims and reads work at any time.
 
-Chapters are numbered from 1 for players; onchain, Chapter 1 is fairs(0) in FairCore.
+Chapters are numbered from 1 for players. Onchain, Chapter 1 is fairs(0) and Chapter 2 is fairs(1) in FairCore. The site and docs.gameofsplits.fun use the same names. The live window is always the one FairCore reports as active.
 
 ## What to click
 
